@@ -22,11 +22,13 @@ from voice_followup import Followup,stop_phrase
 from shutdown import Shutdown
 from assistant_core import AssistantCore
 from memory import Memory
+from semantic_memory import resolve_notes
+from dataclasses import replace
 from memory_ui import open_memory
 from windows_launcher import create_shortcut
 from diagnostics_ui import open_diagnostics
 
-VERSION='0.6.2'
+VERSION='0.7.0'
 UPDATE_EXIT=42
 BASE=Path(os.environ.get("JARVIS_DATA_DIR",str(Path(__file__).resolve().parent))).resolve()
 CONFIG=BASE/'camera_config.json'
@@ -131,7 +133,7 @@ class Slot:
 
 class App:
     def __init__(self,root,index=None):
-        self.root=root; self.closed=False; self.shutdown=Shutdown(); self.exit_guard=False; self.tick_id=None; self.results=queue.Queue(); self.ask_busy=False; self.detect_busy=False; self.detector=None; self.detection_on=False; self.detect_epoch=0; self.last_detection=0; self.listen_busy=False; self.speak_busy=False; self.stop_voice=threading.Event(); self.core=AssistantCore(ask_vision); self.conversation=self.core.conversation; self.wake_enabled=False; self.voice_epoch=0; self.pending_speech=None; self.followup=Followup();self.followup_request=None
+        self.root=root; self.closed=False; self.shutdown=Shutdown(); self.exit_guard=False; self.tick_id=None; self.results=queue.Queue(); self.ask_busy=False; self.detect_busy=False; self.detector=None; self.detection_on=False; self.detect_epoch=0; self.last_detection=0; self.listen_busy=False; self.speak_busy=False; self.stop_voice=threading.Event(); self.memory_cancel=threading.Event(); self.core=AssistantCore(ask_vision); self.conversation=self.core.conversation; self.wake_enabled=False; self.voice_epoch=0; self.pending_speech=None; self.followup=Followup();self.followup_request=None
         self.memory=Memory(CONFIG.parent/'jarvis_memory.sqlite3'); self.memory_window=None; self.diagnostics_window=None; self.speech_input_window=None; self.voice_output_window=None
         self.voice_settings_path=CONFIG.parent/'voice_preferences.json';self.voice_settings=voice_output.load(self.voice_settings_path)
         self.speech_path=CONFIG.parent/'speech_input.json';self.speech_settings=speech_input.load(self.speech_path)
@@ -242,7 +244,7 @@ class App:
         if self.listen_busy and getattr(self,'listening_followup',False):
             self.stop_voice.set();self.voice_epoch+=1
     def clear_context(self):
-        self.change_followup();self.core.clear(); self.pending_speech=None; self.write('Contexto borrado. Nueva conversación.')
+        self.memory_cancel.set(); self.change_followup();self.core.clear(); self.pending_speech=None; self.write('Contexto borrado. Nueva conversación.')
     def ask(self,follow_epoch=None):
         if self.closed or self.ask_busy: return False
         if follow_epoch is None:self.change_followup()
@@ -253,14 +255,19 @@ class App:
         if self.listen_busy:
             self.stop_voice.set(); self.voice_epoch+=1
         self.ask_busy=True; self.abutton.configure(state='disabled'); source=f'Cámara {s.num+1}' if visual else 'Sin cámara'; self.write(f'{source}: procesando…'); gen=s.generation
-        try: style,memories=self.memory.snapshot(question)
+        try: style,memories,candidates=self.memory.selection(question,self.context_on.get())
         except Exception as e:
             self.ask_busy=False; self.abutton.configure(state='normal'); self.write('No se pudo leer la memoria: '+str(e)); return False
         request=self.core.prepare(question,source,frame,self.context_on.get(),style,memories if self.context_on.get() else ())
         self.followup_request=follow_epoch
+        self.memory_cancel=threading.Event();cancel=self.memory_cancel
         def work():
-            try: self.results.put(('ask',s.num if visual else None,gen,self.core.answer(request),None,request))
-            except Exception as e: self.results.put(('ask',s.num if visual else None,gen,'',str(e),request))
+            try:
+                notes,status=resolve_notes(request.memories,candidates,request.question,cancel)
+                if cancel.is_set(): raise RuntimeError('Consulta cancelada')
+                effective=replace(request,memories=notes)
+                self.results.put(('ask',s.num if visual else None,gen,self.core.answer(effective),None,effective,status))
+            except Exception as e: self.results.put(('ask',s.num if visual else None,gen,'',str(e),request,''))
         self.shutdown.start(work)
         return True
     def cancel_voice(self):
@@ -330,12 +337,12 @@ class App:
                     if error: self.toggle(); self.dstatus.set('Error YOLO: '+error)
                     else: s.boxes=boxes; s.box_time=time.monotonic(); self.dstatus.set(', '.join(f'{name} ({conf:.0%})' for _,name,conf in boxes) or 'Sin objetos reconocidos')
             elif kind=='ask':
-                self.ask_busy=False; self.abutton.configure(state='normal'); slot,gen,text,error,request=r
+                self.ask_busy=False; self.abutton.configure(state='normal'); slot,gen,text,error,request,memory_status=r
                 follow_epoch=self.followup_request;self.followup_request=None
                 if request.epoch!=self.conversation.epoch: continue
                 source=request.source
                 if slot is not None and gen!=self.slots[slot].generation: self.write('Captura descartada: cambió o se apagó la cámara.'); continue
-                self.write(f'{source}:\n'+(text if not error else 'Error: '+error+'\nComprobá Ollama y gemma3:4b.'))
+                self.write(f'{source}:\n'+(text if not error else 'Error: '+error+'\nComprobá Ollama y gemma3:4b.')+('\n\nMemoria: '+memory_status if memory_status and not error else ''))
                 if not error:
                     self.core.accept(request,text,self.context_on.get())
                     if self.auto_speak.get(): self.pending_speech=text
@@ -379,7 +386,7 @@ class App:
             self.update_requested=True; self.close()
     def close(self):
         if self.closed:return
-        self.closed=True; self.wake_enabled=False; self.followup.reset();self.followup_request=None;self.pending_speech=None; self.voice_epoch+=1
+        self.memory_cancel.set(); self.closed=True; self.wake_enabled=False; self.followup.reset();self.followup_request=None;self.pending_speech=None; self.voice_epoch+=1
         captures=[s.capture for s in self.slots if s.capture]
         self.shutdown.begin([self.stop_voice]+[c.stop for c in captures],[c.thread for c in captures],
                             exit_code=(UPDATE_EXIT if self.update_requested else 0) if self.exit_guard else None)

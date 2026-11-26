@@ -55,6 +55,28 @@ class MemoryTests(unittest.TestCase):
                 return io.BytesIO(b'{"message":{"content":"ok"}}')
         with patch('vision.urllib.request.build_opener',return_value=Opener()):
             self.assertEqual(ask_vision(None,'hola',style='Conciso',memories=('nota de prueba',)),'ok')
+    def test_semantic_opt_in_and_context_gate(self):
+        self.m.add('Me gusta la música')
+        self.m.configure(True,'Conciso')
+        self.assertEqual(self.m.selection('arte')[2],())
+        self.m.configure(True,'Conciso',True)
+        self.assertTrue(Memory(self.path).semantic_enabled())
+        self.assertEqual(self.m.selection('arte')[2],tuple(self.m.items()))
+        self.assertEqual(self.m.selection('arte',False),('Conciso',(),()))
+        self.m.configure(False,'Normal')
+        self.assertFalse(self.m.semantic_enabled())
+        self.assertEqual(self.m.selection('arte')[2],())
+        self.assertEqual(len(self.m.items()),1)
+    def test_legacy_database_migration(self):
+        import sqlite3
+        with sqlite3.connect(self.path) as con:
+            con.execute('CREATE TABLE settings (id INTEGER PRIMARY KEY, enabled INTEGER, style TEXT)')
+            con.execute("INSERT INTO settings VALUES (1,1,'Conciso')")
+            con.execute('CREATE TABLE notes (id INTEGER PRIMARY KEY, text TEXT UNIQUE)')
+            con.execute("INSERT INTO notes VALUES (7,'medicina')")
+        self.assertEqual(self.m.snapshot('medicina'),('Conciso',('medicina',)))
+        self.assertFalse(self.m.semantic_enabled())
+        self.assertEqual(self.m.items(),[(7,'medicina')])
     def test_corruption_not_overwritten(self):
         self.path.write_bytes(b'invalid database')
         with self.assertRaises(Exception): self.m.snapshot()

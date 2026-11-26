@@ -4,17 +4,24 @@ from tkinter import ttk, messagebox, simpledialog
 from memory import STYLES
 
 def open_memory(parent,store,on_change):
-    win=tk.Toplevel(parent); win.title('JARVIS · Memoria y personalidad'); win.geometry('590x460'); win.transient(parent)
+    win=tk.Toplevel(parent); win.title('JARVIS · Memoria y personalidad'); win.geometry('640x540'); win.transient(parent)
     panel=ttk.Frame(win,padding=14); panel.pack(fill='both',expand=True)
     ttk.Label(panel,text='Memoria local y personalidad',font=('Segoe UI',16,'bold')).pack(anchor='w')
     ttk.Label(panel,text='Solo se guardan las notas que agregues. No se graban conversaciones, imágenes ni audio. La base local no está cifrada.',wraplength=540).pack(anchor='w',pady=6)
     enabled,style=store.settings(); use=tk.BooleanVar(value=enabled); tone=tk.StringVar(value=style)
+    semantic=tk.BooleanVar(value=store.semantic_enabled())
     def guard(fn):
         try: fn()
         except Exception as e: messagebox.showerror('Memoria',str(e),parent=win)
     def settings():
-        store.configure(use.get(),tone.get()); on_change()
+        if not use.get(): semantic.set(False)
+        store.configure(use.get(),tone.get(),semantic.get()); on_change()
     ttk.Checkbutton(panel,text='Usar recuerdos en nuevas respuestas',variable=use,command=lambda:guard(settings)).pack(anchor='w')
+    def toggle_semantic():
+        if semantic.get() and (not use.get() or not messagebox.askyesno('Memoria semántica','¿Permitir que Ollama local compare tu pregunta con todas las notas guardadas? Requiere bge-m3 instalado explícitamente. No se guardan embeddings ni conversaciones. Si falla, se usa búsqueda por palabras.',parent=win)):
+            semantic.set(False)
+        settings()
+    ttk.Checkbutton(panel,text='Recuperación semántica local (experimental)',variable=semantic,command=lambda:guard(toggle_semantic)).pack(anchor='w')
     ttk.Label(panel,text='Estilo de respuesta').pack(anchor='w',pady=(8,0))
     combo=ttk.Combobox(panel,values=STYLES,textvariable=tone,state='readonly'); combo.pack(fill='x')
     combo.bind('<<ComboboxSelected>>',lambda _:guard(settings))

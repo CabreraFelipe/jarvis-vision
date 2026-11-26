@@ -4,9 +4,23 @@ import os
 import queue
 import time
 from pathlib import Path
+import speech_input
 
 MODEL_DIR=Path(os.environ.get('JARVIS_DATA_DIR',str(Path(__file__).resolve().parent))) /'modelos'/'vosk-model-small-es-0.42'
 _model=None
+_model_path=None
+
+def recognizer_input(sd,Model,KaldiRecognizer,settings,base):
+    global _model,_model_path
+    settings=speech_input.normalize(settings)
+    path=speech_input.model_path(base,settings['model']) if base is not None else (MODEL_DIR if settings['model']=='Ligero' else MODEL_DIR.with_name(speech_input.MODELS['Completo']))
+    if not path.is_dir():raise RuntimeError('Falta el modelo español '+settings['model']+'. Revisá Herramientas > Micrófono y reconocimiento.')
+    index=speech_input.resolve_device(sd,settings['device'])
+    device=sd.query_devices(index,kind='input') if index is not None else sd.query_devices(kind='input')
+    rate=int(device['default_samplerate'])
+    if _model is None or _model_path!=path:
+        _model=Model(str(path));_model_path=path
+    return KaldiRecognizer(_model,rate),rate,index,str(device['name'])
 
 class SpeechTurn:
     """Accumulate recognized segments; optionally finish at the first nonempty endpoint."""
@@ -31,19 +45,18 @@ class SpeechTurn:
             self.finished=True
         return ' '.join(self.parts)
 
-def listen(stop, seconds=6, on_ready=None, *, end_on_phrase=False):
+def listen(stop, seconds=6, on_ready=None, *, end_on_phrase=False, settings=None, base=None):
     global _model
     import sounddevice as sd
     from vosk import Model, KaldiRecognizer
-    if not MODEL_DIR.is_dir(): raise RuntimeError('Falta el modelo español de Vosk. Leé VOZ.txt.')
-    if _model is None: _model=Model(str(MODEL_DIR))
     if stop.is_set(): return ''
-    device=sd.query_devices(kind='input'); rate=int(device['default_samplerate'])
-    rec=KaldiRecognizer(_model,rate); chunks=queue.Queue(maxsize=64); turn=SpeechTurn(rec,end_on_phrase)
+    rec,rate,index,device_name=recognizer_input(sd,Model,KaldiRecognizer,settings,base)
+    if stop.is_set(): return ''
+    chunks=queue.Queue(maxsize=64); turn=SpeechTurn(rec,end_on_phrase)
     def callback(indata,frames,timing,status):
         try: chunks.put_nowait(bytes(indata))
         except queue.Full: pass
-    with sd.RawInputStream(samplerate=rate,blocksize=max(800,rate//10),dtype='int16',channels=1,callback=callback):
+    with sd.RawInputStream(device=index,samplerate=rate,blocksize=max(800,rate//10),dtype='int16',channels=1,callback=callback):
         if on_ready: on_ready()
         end=time.monotonic()+seconds
         while time.monotonic()<end and not stop.is_set():
@@ -117,21 +130,20 @@ class WakeCommand:
         if self.until is not None and now>=self.until: self.until=None; return True
         return False
 
-def listen_wake(stop,on_state=None,*,allow_bare=False):
+def listen_wake(stop,on_state=None,*,allow_bare=False,settings=None,base=None):
     global _model
     import sounddevice as sd
     from vosk import Model, KaldiRecognizer
-    if not MODEL_DIR.is_dir(): raise RuntimeError('Falta el modelo español de Vosk. Leé VOZ.txt.')
-    if _model is None: _model=Model(str(MODEL_DIR))
     if stop.is_set(): return ''
-    device=sd.query_devices(kind='input'); rate=int(device['default_samplerate'])
-    rec=KaldiRecognizer(_model,rate); chunks=queue.Queue(maxsize=32); gate=WakeCommand(allow_bare=allow_bare)
+    rec,rate,index,device_name=recognizer_input(sd,Model,KaldiRecognizer,settings,base)
+    if stop.is_set(): return ''
+    chunks=queue.Queue(maxsize=32); gate=WakeCommand(allow_bare=allow_bare)
     def callback(indata,frames,timing,status):
         try: chunks.put_nowait(bytes(indata))
         except queue.Full: pass
-    with sd.RawInputStream(samplerate=rate,blocksize=max(800,rate//10),dtype='int16',channels=1,callback=callback):
+    with sd.RawInputStream(device=index,samplerate=rate,blocksize=max(800,rate//10),dtype='int16',channels=1,callback=callback):
         prompt='En espera de «Hola, JARVIS» o «Hola, asistente»'+(' o «JARVIS» solo' if allow_bare else '')
-        if on_state: on_state(prompt+' · micrófono activo')
+        if on_state: on_state(prompt+' · micrófono activo: '+device_name)
         while not stop.is_set():
             now=time.monotonic()
             if gate.expire(now) and on_state: on_state('Tiempo agotado · '+prompt)

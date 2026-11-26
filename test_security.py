@@ -111,6 +111,26 @@ class SecurityTests(unittest.TestCase):
         with patch('manager.fetch',return_value=json.dumps(self.feed).encode()) as fetch,patch('manager.verify_artifact'):
             with self.assertRaises(ValueError):self.m.update_manager_locked(entry)
         self.assertEqual(fetch.call_count,1);self.assertEqual(target.read_bytes(),old)
+    def test_owned_process_exit_code(self):
+        import os,sys
+        from manager import run_owned_session
+        self.assertEqual(run_owned_session([sys.executable,'-c','raise SystemExit(42)'],cwd=self.root,env=os.environ.copy()),42)
+    def test_windows_job_cleans_only_owned_children(self):
+        import os,sys,time
+        if os.name!='nt':self.skipTest('Windows job objects only')
+        from manager import WindowsSessionJob
+        job=WindowsSessionJob()
+        owned=subprocess.Popen([sys.executable,'-c','import time;time.sleep(30)'])
+        other=subprocess.Popen([sys.executable,'-c','import time;time.sleep(30)'])
+        try:
+            job.assign(owned);job.close()
+            owned.wait(timeout=5)
+            self.assertIsNone(other.poll())
+        finally:
+            job.close()
+            for p in (owned,other):
+                if p.poll() is None:p.terminate()
+                p.wait(timeout=5)
     def test_reject_wrong_feed(self):
         with self.assertRaises(ValueError): self.m.set_feed('https://example.com/feed.json')
         self.assertEqual(self.m.feed(),TRUSTED_FEED)

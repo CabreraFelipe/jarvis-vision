@@ -1,3 +1,37 @@
+V0.5.4 — Actualización acumulativa
+====================================
+Incluye todas las funciones de V0.5.2 y V0.5.3.
+Instalar directamente desde el gestor sin instalar versiones intermedias.
+Si el gestor revisión 1 está instalado, aceptar revisión 2 cuando se ofrezca
+y cerrar/reabrir para aplicarla. Conservar preferencias y datos.
+No modificar los ajustes actuales de Redragon.
+Para action camera: seleccionar el índice ya conocido, Compatibilidad,
+formato Automático y DirectShow; si falla, probar Media Foundation por separado
+y verificar que se trata del mismo dispositivo. Inicio rápido es alternativo.
+Los perfiles compatibles toleran demora inicial y hasta dos reconexiones
+adicionales por sesión, sin reiniciar la otra cámara.
+Herramientas > Micrófono y reconocimiento: elegir el micrófono real y probar
+transcripción sin IA. Modelo Completo opcional, requiere instalación manual
+desde https://alphacephei.com/vosk/models.
+Validar cierre de sesión, reapertura, voz, captura dual y procesos propios.
+No terminar otros Python ni Ollama.
+
+V0.5.3 — Cierre, entrada de voz y cámaras
+=========================================
+Instalar app V0.5.3 mediante el gestor. Si ya instalaste el gestor revisión 1,
+aceptar además revisión 2 cuando se ofrezca y cerrar/reabrir para aplicarla.
+No repetir migración manual si revisión 1 está instalada.
+Mantener los ajustes actuales de la Redragon. En action camera probar
+Inicio rápido / Automático / 30 FPS / DirectShow si tarda en conectar.
+Inicio rápido omite la medición de modos; no fuerza resolución.
+Herramientas > Micrófono y reconocimiento permite seleccionar la entrada,
+probar transcripción sin IA y elegir el modelo español Ligero o Completo.
+El modelo Completo requiere descarga manual de vosk-model-es-0.42 desde
+https://alphacephei.com/vosk/models y extracción en modelos.
+No borrar los modelos existentes ni modificar las configuraciones funcionales.
+Probar cierre de sesión en reposo, con dos cámaras, escucha y respuesta.
+Comprobar procesos de la instalación, no cerrar otros Python ni Ollama.
+
 V0.5.2 — estabilidad y gestor de actualizaciones
 =================================================
 Actualización normal: abrir el acceso directo administrado y aceptar V0.5.2.

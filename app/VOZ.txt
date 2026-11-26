@@ -48,4 +48,17 @@ Modo opcional «Terminar al detectar una pausa»: usa el final de segmento de Vo
 
 Reconocimiento ampliado: variantes fonéticas acotadas, nombre dividido (hola / jar / vis) con ventanas breves y modo opcional «JARVIS» solo. Configurá este modo antes de activar la escucha. El nombre solo abre una ventana de 8 s para la pregunta; no se activa por «hola» sola. No es reconocimiento del hablante ni un detector acústico especializado. Las pruebas con texto no garantizan que Vosk transcriba todas las pronunciaciones.
 
-Motor neuronal experimental: Herramientas > Configurar voz. Sistema sigue siendo el predeterminado. Piper local requiere instalación separada de piper-tts y archivos ONNX + ONNX.json de confianza, colocados en modelos/piper. No se distribuyen modelos ni se descargan automáticamente. Revisar licencias de la voz y sus corpus. Probar antes de guardar. No se garantiza menor latencia: el candidato inicia un proceso por respuesta.
+Micrófono y reconocimiento: seleccioná explícitamente la entrada y probá la transcripción sin ejecutar IA. El modelo Completo es opcional, requiere instalar vosk-model-es-0.42 en modelos desde https://alphacephei.com/vosk/models . El ligero sigue por defecto. El modelo completo puede consumir más RAM y no garantiza reconocer JARVIS. Inicio rápido de cámara: modo opcional sin benchmark, utiliza resolución predeterminada y FPS/formato/controlador solicitados; no garantiza la resolución ni los FPS efectivos. No cambia los perfiles actuales.
+
+
+FASTER-WHISPER EXPERIMENTAL (transcripción manual solamente)
+Instalación opcional separada: pip install faster-whisper scipy (en el mismo Python de JARVIS; no ejecutar automáticamente). Descargar el modelo multilingüe Systran/faster-whisper-small desde https://huggingface.co/Systran/faster-whisper-small en modelos/faster-whisper-small con todos sus archivos originales, incluidos model.bin, config.json y tokenizer.json. No usar small.en. Elegir Whisper small en Herramientas > Micrófono y reconocimiento; Probar y comparar con Vosk usando el mismo dispositivo. CPU int8, sin envío de audio ni descarga de modelos en tiempo de uso; tarda según equipo. El modo manual usa seis segundos, incluso con detección de pausa marcada. Activación continua conserva Vosk Ligero al seleccionar Whisper; no es una mejora acústica de la frase todavía. Cancelar descarta resultados, pero no interrumpe una llamada nativa en curso; cierre acotado anterior permanece. No reemplazar modelo ni instalar automáticamente.
+
+
+PIPER LOCAL EXPERIMENTAL
+Herramientas > Configurar voz. Sistema sigue siendo el motor predeterminado.
+Instalación opcional separada de piper-tts y archivos ONNX + JSON de confianza
+colocados en modelos/piper. Revisar licencia de cada voz. No descargar nada
+ni instalar automáticamente. Probar antes de guardar. El candidato usa un
+proceso por respuesta y no garantiza menor latencia. El gestor revisión 2
+contiene los procesos de la sesión cuando Windows permite asignarlos al job.

@@ -5,7 +5,7 @@ import time
 from pathlib import Path
 import cv2
 
-MODES = {'Automática': None, 'Auto fluidez': None, 'Auto calidad': None, 'Compatibilidad': None, '1920x1080': (1920,1080), '1280x720': (1280,720), '640x480': (640,480), 'Predeterminada': None}
+MODES = {'Automática': None, 'Auto fluidez': None, 'Auto calidad': None, 'Compatibilidad': None, 'Inicio rápido': None, '1920x1080': (1920,1080), '1280x720': (1280,720), '640x480': (640,480), 'Predeterminada': None}
 FORMATS = ('Automático','MJPG','YUY2')
 FPS = (15,30,60)
 BACKENDS=('Automático','DirectShow','Media Foundation')
@@ -37,11 +37,30 @@ def save_config(path,a,b,profiles):
     path=Path(path); tmp=path.with_suffix('.tmp')
     tmp.write_text(json.dumps({'camera':a['index'],'primary':a,'secondary':b,'profiles':profiles},indent=2,ensure_ascii=False),encoding='utf-8'); tmp.replace(path)
 
-def try_mode(cap, mode, fps, fmt, stop=None):
+RECOVERY_MODES=('Compatibilidad','Inicio rápido')
+
+def wait_first_frame(cap,stop=None,seconds=1.5,max_reads=20):
+    """Allow slow UVC initialization on the same handle. Cannot bound a native read."""
+    deadline=time.monotonic()+seconds
+    for _ in range(max_reads):
+        if stop is not None and stop.is_set():return None
+        ok,frame=cap.read()
+        if stop is not None and stop.is_set():return None
+        if ok and frame is not None and frame.size:return frame
+        remaining=deadline-time.monotonic()
+        if remaining<=0:break
+        delay=min(.08,remaining)
+        if stop is not None:
+            if stop.wait(delay):return None
+        else:time.sleep(delay)
+    return None
+
+def try_mode(cap, mode, fps, fmt, stop=None,*,slow_start=False):
     if fmt!='Automático': cap.set(cv2.CAP_PROP_FOURCC,cv2.VideoWriter_fourcc(*fmt))
     if mode:
         cap.set(cv2.CAP_PROP_FRAME_WIDTH,mode[0]); cap.set(cv2.CAP_PROP_FRAME_HEIGHT,mode[1])
     cap.set(cv2.CAP_PROP_FPS,fps)
+    if slow_start:return wait_first_frame(cap,stop)
     frame=None
     for _ in range(3):
         if stop is not None and stop.is_set(): return None
@@ -79,7 +98,7 @@ def open_compatible_camera(config, stop=None):
         try:
             if not cap.isOpened(): return None
             if cancelled(): return None
-            frame=try_mode(cap,mode,config['fps'],fmt,stop)
+            frame=try_mode(cap,mode,config['fps'],fmt,stop,slow_start=config['resolution'] in RECOVERY_MODES)
             if frame is None: return None
             if cancelled(): return None
             keep=True; return cap,frame
@@ -96,11 +115,9 @@ def open_compatible_camera(config, stop=None):
             keep=False
             try:
                 if not cap.isOpened(): continue
-                for _ in range(3):
-                    if cancelled(): raise RuntimeError('Captura cancelada')
-                    ok,frame=cap.read()
-                    if ok and frame is not None and frame.size and not cancelled():
-                        keep=True; return cap,frame
+                frame=wait_first_frame(cap,stop)
+                if frame is not None and not cancelled():
+                    keep=True;return cap,frame
             except cv2.error: pass
             finally:
                 if not keep: cap.release()
@@ -175,7 +192,7 @@ def open_performance_camera(config, stop=None):
 def open_camera(config,stop=None):
     """Retain fast webcam negotiation; restore the old path for fragile USB cameras."""
     profile=config['resolution']
-    if profile=='Compatibilidad':
+    if profile in RECOVERY_MODES:
         return open_compatible_camera(config,stop)
     try: return open_performance_camera(config,stop)
     except RuntimeError:
@@ -190,31 +207,46 @@ class Capture:
     def snapshot(self):
         with self.lock: return self.frame,self.stamp,self.fps,self.status,self.format,self.ready
     def run(self):
-        cap=None
-        try:
-            cap,frame=open_camera(self.config,self.stop)
-            try: backend=cap.getBackendName()
-            except (AttributeError,cv2.error): backend='No informado'
-            with self.lock: self.backend=backend
-            try: fourcc=int(cap.get(cv2.CAP_PROP_FOURCC))
-            except (ValueError,TypeError,OverflowError): fourcc=0
-            fmt=''.join(chr((fourcc >> (8*i)) & 255) for i in range(4)); fmt=fmt if fmt.isprintable() else 'No informado'
-            start=time.monotonic(); n=0; failures=0
-            while not self.stop.is_set():
-                now=time.monotonic(); n+=1
+        # Retry only the explicit USB recovery profiles; never silently change an index.
+        attempts=3 if self.config['resolution'] in RECOVERY_MODES else 1
+        for attempt in range(attempts):
+            if self.stop.is_set():break
+            cap=None
+            try:
+                cap,frame=open_camera(self.config,self.stop)
+                self.stream(cap,frame)
+                break
+            except Exception as exc:
                 with self.lock:
-                    self.frame=frame; self.stamp=now; self.ready=True; self.status='Conectada'; self.format=fmt
-                    if now-start>=1.0: self.fps=n/(now-start); start=now; n=0
-                ok,frame=cap.read()
-                while not self.stop.is_set() and (not ok or frame is None or not frame.size):
-                    failures+=1
-                    if failures>=5: raise RuntimeError('Captura interrumpida. Pulsá Conectar.')
-                    time.sleep(.05); ok,frame=cap.read()
-                failures=0
-        except Exception as exc:
-            with self.lock: self.status=str(exc)
-        finally:
-            if cap is not None: cap.release()
+                    self.frame=None; self.ready=False; self.fps=0.;self.stamp=0.
+                    self.status=str(exc)
+                if self.stop.is_set() or attempt+1>=attempts:break
+            finally:
+                if cap is not None:cap.release()
             with self.lock:
-                self.frame=None; self.ready=False
-                if self.stop.is_set(): self.status='Desactivada'
+                self.status=f'Reconectando cámara ({attempt+2}/{attempts})…'
+            if self.stop.wait(.35*(attempt+1)):break
+        with self.lock:
+            self.frame=None;self.ready=False
+            if self.stop.is_set():self.status='Desactivada'
+
+    def stream(self,cap,frame):
+        try:backend=cap.getBackendName()
+        except (AttributeError,cv2.error):backend='No informado'
+        with self.lock:self.backend=backend
+        try:fourcc=int(cap.get(cv2.CAP_PROP_FOURCC))
+        except (ValueError,TypeError,OverflowError):fourcc=0
+        fmt=''.join(chr((fourcc >> (8*i)) & 255) for i in range(4));fmt=fmt if fmt.isprintable() else 'No informado'
+        start=time.monotonic();n=0;failures=0
+        while not self.stop.is_set():
+            now=time.monotonic();n+=1
+            with self.lock:
+                self.frame=frame;self.stamp=now;self.ready=True;self.status='Conectada';self.format=fmt
+                if now-start>=1.0:self.fps=n/(now-start);start=now;n=0
+            ok,frame=cap.read()
+            while not self.stop.is_set() and (not ok or frame is None or not frame.size):
+                failures+=1
+                if failures>=5:raise RuntimeError('Captura interrumpida. Pulsá Conectar.')
+                if self.stop.wait(.05):return
+                ok,frame=cap.read()
+            failures=0

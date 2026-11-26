@@ -1,4 +1,8 @@
-# JARVIS Vision — V0.5.2
+# JARVIS Vision — V0.5.4
+
+V0.5.4: actualización acumulativa de cierre de sesión, selección de micrófono/modelo y recuperación USB limitada. Modos Compatibilidad e Inicio rápido toleran lecturas iniciales fallidas y hasta dos reconexiones; el modo normal conserva su negociación. CI PR14 superada; validación física pendiente. No requiere instalar V0.5.3 primero.
+
+V0.5.3: cierre acotado de la sesión y gestor revisión 2 con aislamiento de procesos propios en Windows; elección explícita de micrófono, modelo Vosk completo opcional, prueba de transcripción sin IA e Inicio rápido de cámara voluntario. CI de PR12 y PR13 superada. Pendientes CI de publicación y validación física. No se cambia el motor de voz ni cámara por defecto.
 
 V0.5.2: compatibilidad USB opcional, recuperación cooperativa de instancia y gestor revisión 1 con autoactualización autenticada. La última migración del gestor requiere verificación externa y consentimiento. Ambas cámaras confirmadas funcionales por el usuario en V0.5.1; FPS exactos no informados. CI integrada superada antes del incremento de versión; CI de publicación y pruebas físicas de V0.5.2 pendientes.
 

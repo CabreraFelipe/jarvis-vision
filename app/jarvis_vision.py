@@ -15,14 +15,17 @@ from vision import ask_vision
 import voice
 import voice_output
 from voice_output_ui import open_voice_output
+import speech_input
+from speech_input_ui import open_speech_input
 from instance_focus import poll_focus
+from shutdown import Shutdown
 from assistant_core import AssistantCore
 from memory import Memory
 from memory_ui import open_memory
 from windows_launcher import create_shortcut
 from diagnostics_ui import open_diagnostics
 
-VERSION='0.5.2'
+VERSION='0.5.4'
 UPDATE_EXIT=42
 BASE=Path(os.environ.get("JARVIS_DATA_DIR",str(Path(__file__).resolve().parent))).resolve()
 CONFIG=BASE/'camera_config.json'
@@ -86,7 +89,10 @@ class Slot:
             if not self.capture and self.pending is None and self.status.get().startswith('Cerrando'): self.status.set('Desactivada')
             return
         frame,stamp,fps,status,fmt,ready=self.capture.snapshot()
-        if not ready or frame is None: self.status.set(status); return
+        if not ready or frame is None:
+            if self.photo is not None:
+                self.generation+=1;self.boxes=[];self.box_time=0.;self.clear('Esperando imagen…')
+            self.status.set(status);return
         if not self.saved:
             self.saved=True; self.fallback=None; self.app.profiles[str(self.config['index'])]=dict(self.config); self.app.persist()
         now=time.monotonic(); h,w=frame.shape[:2]
@@ -118,9 +124,10 @@ class Slot:
 
 class App:
     def __init__(self,root,index=None):
-        self.root=root; self.closed=False; self.results=queue.Queue(); self.ask_busy=False; self.detect_busy=False; self.detector=None; self.detection_on=False; self.detect_epoch=0; self.last_detection=0; self.listen_busy=False; self.speak_busy=False; self.stop_voice=threading.Event(); self.core=AssistantCore(ask_vision); self.conversation=self.core.conversation; self.wake_enabled=False; self.voice_epoch=0; self.pending_speech=None
-        self.memory=Memory(CONFIG.parent/'jarvis_memory.sqlite3'); self.memory_window=None; self.diagnostics_window=None; self.voice_output_window=None
-        self.voice_settings_path=CONFIG.parent/'voice_preferences.json'; self.voice_settings=voice_output.load(self.voice_settings_path)
+        self.root=root; self.closed=False; self.shutdown=Shutdown(); self.exit_guard=False; self.tick_id=None; self.results=queue.Queue(); self.ask_busy=False; self.detect_busy=False; self.detector=None; self.detection_on=False; self.detect_epoch=0; self.last_detection=0; self.listen_busy=False; self.speak_busy=False; self.stop_voice=threading.Event(); self.core=AssistantCore(ask_vision); self.conversation=self.core.conversation; self.wake_enabled=False; self.voice_epoch=0; self.pending_speech=None
+        self.memory=Memory(CONFIG.parent/'jarvis_memory.sqlite3'); self.memory_window=None; self.diagnostics_window=None; self.speech_input_window=None; self.voice_output_window=None
+        self.voice_settings_path=CONFIG.parent/'voice_preferences.json';self.voice_settings=voice_output.load(self.voice_settings_path)
+        self.speech_path=CONFIG.parent/'speech_input.json';self.speech_settings=speech_input.load(self.speech_path)
         a,b,self.profiles=load_config(CONFIG)
         if index is not None: a=dict(self.profiles.get(str(index),a)); a['index']=index
         if b['index']==a['index']: b=dict(b,index=1 if a['index']!=1 else 0)
@@ -131,6 +138,7 @@ class App:
         ttk.Button(top,text='Memoria y personalidad',command=self.show_memory).pack(side='right',padx=6)
         menu=tk.Menu(root); tools=tk.Menu(menu,tearoff=False)
         tools.add_command(label='Diagnóstico de JARVIS',command=self.show_diagnostics)
+        tools.add_command(label='Micrófono y reconocimiento',command=self.show_speech_input)
         tools.add_command(label='Configurar voz',command=self.show_voice_output)
         if os.name=='nt' and os.environ.get('JARVIS_MANAGED')=='1':
             tools.add_command(label='Crear acceso directo de JARVIS',command=self.make_shortcut)
@@ -158,7 +166,7 @@ class App:
         self.auto_speak=tk.BooleanVar(value=False); ttk.Checkbutton(side,text='Leer respuestas en voz alta',variable=self.auto_speak).pack(anchor='w'); self.vstatus=tk.StringVar(value='Voz opcional · sin escucha permanente'); ttk.Label(side,textvariable=self.vstatus,wraplength=290).pack(fill='x',pady=4)
         ttk.Label(side,text='Ollama local · imágenes solo a pedido. Voz continua solo si la activás.',wraplength=290).pack(fill='x')
         self.answer=tk.Text(side,wrap='word',height=8,width=30,font=('Segoe UI',10)); self.answer.pack(fill='both',expand=True); self.write('Conectá una cámara. Para preguntas instalá Ollama y gemma3:4b. Para voz, ver VOZ.txt.')
-        self.slots[0].connect(); self.root.after(15,self.tick)
+        self.slots[0].connect(); self.tick_id=self.root.after(15,self.tick)
     def show_voice_output(self):
         if self.voice_output_window is not None and self.voice_output_window.winfo_exists():
             self.voice_output_window.lift();return
@@ -166,7 +174,15 @@ class App:
             voice_output.save(self.voice_settings_path,settings);self.voice_settings=settings
         self.voice_output_window=open_voice_output(self.root,CONFIG.parent,self.voice_settings,apply,
             lambda settings:self.speak('Hola. Soy JARVIS, tu asistente personal.',settings),
-            lambda:self.listen_busy or self.speak_busy or self.ask_busy or self.wake_enabled)
+            lambda:self.closed or self.listen_busy or self.speak_busy or self.ask_busy or self.wake_enabled)
+    def show_speech_input(self):
+        if self.speech_input_window is not None and self.speech_input_window.winfo_exists():
+            self.speech_input_window.lift();return
+        def apply(settings):
+            speech_input.save(self.speech_path,settings);self.speech_settings=settings
+        try:self.speech_input_window=open_speech_input(self.root,CONFIG.parent,self.speech_settings,apply,
+            lambda settings:self.listen(test_settings=settings),lambda:self.listen_busy or self.speak_busy or self.ask_busy or self.wake_enabled)
+        except Exception as e:messagebox.showerror('Micrófono',str(e),parent=self.root)
     def show_diagnostics(self):
         if self.diagnostics_window is not None and self.diagnostics_window.winfo_exists():
             self.diagnostics_window.lift(); return
@@ -174,7 +190,7 @@ class App:
             return [(f'Cámara {s.num+1}',s.status.get().split('\n')[0]) for s in self.slots]+[
                 ('Micrófono','En uso' if self.listen_busy else 'Inactivo'),
                 ('Activación por voz','Habilitada' if self.wake_enabled else 'Desactivada')]
-        self.diagnostics_window=open_diagnostics(self.root,BASE,VERSION,status)
+        self.diagnostics_window=open_diagnostics(self.root,BASE,VERSION,status,start_worker=self.shutdown.start)
     def make_shortcut(self):
         if not messagebox.askyesno('Acceso directo','¿Crear o reemplazar el acceso directo JARVIS en el escritorio? Mantendrá el gestor de actualizaciones.',parent=self.root): return
         try:
@@ -229,7 +245,7 @@ class App:
         def work():
             try: self.results.put(('ask',s.num if visual else None,gen,self.core.answer(request),None,request))
             except Exception as e: self.results.put(('ask',s.num if visual else None,gen,'',str(e),request))
-        threading.Thread(target=work,daemon=True).start()
+        self.shutdown.start(work)
     def cancel_voice(self):
         self.wake_enabled=False; self.bare_check.configure(state='normal'); self.voice_epoch+=1; self.stop_voice.set(); self.pending_speech=None; self.wbutton.configure(text='Activar «Hola, JARVIS»'); self.vstatus.set('Micrófono desactivado; cerrando escucha si estaba activa.')
     def toggle_wake(self):
@@ -237,31 +253,35 @@ class App:
         self.wake_enabled=True; self.bare_check.configure(state='disabled'); self.auto_speak.set(True); self.wbutton.configure(text='Desactivar «Hola, JARVIS»'); self.vstatus.set('Activación habilitada; preparando micrófono…')
     def update_voice_button(self):
         self.vbutton.configure(text='Hablar (hasta 12 s)' if self.natural_turn.get() else 'Hablar (6 s)')
-    def listen(self, wake=False):
+    def listen(self, wake=False, test_settings=None):
         if self.listen_busy or self.speak_busy or self.ask_busy: return
         if not wake and self.wake_enabled: return
         self.listen_busy=True; self.stop_voice.clear(); self.voice_epoch+=1; epoch=self.voice_epoch; self.vbutton.configure(state='disabled'); self.vstatus.set('Preparando micrófono…')
-        natural=self.natural_turn.get() and not wake
+        testing=test_settings is not None
+        selected=dict(test_settings if testing else self.speech_settings)
+        options={'settings':selected,'base':CONFIG.parent} if selected!=speech_input.DEFAULT or testing else {}
+        natural=self.natural_turn.get() and not wake and not testing and selected['model']!='Whisper small'
+        if not wake and selected['model']=='Whisper small':options['on_processing']=lambda:self.results.put(('mic_state',epoch,'Whisper local: transcribiendo audio…'))
         bare=self.bare_wake.get() and wake
         def work():
             try:
                 if wake:
-                    options={'allow_bare':True} if bare else {}
-                    text=voice.listen_wake(self.stop_voice,on_state=lambda state:self.results.put(('mic_state',epoch,state)),**options)
-                elif natural: text=voice.listen(self.stop_voice,seconds=12,end_on_phrase=True,on_ready=lambda:self.results.put(('mic_state',epoch,'Micrófono activo: hablá y hacé una pausa al terminar (máx. 12 s).')))
-                else: text=voice.listen(self.stop_voice,on_ready=lambda:self.results.put(('mic_state',epoch,'Micrófono activo: hablá ahora (6 segundos).')))
-                self.results.put(('voice',epoch,wake,text,None))
-            except Exception as e: self.results.put(('voice',epoch,wake,'',str(e)))
-        threading.Thread(target=work,daemon=True).start()
+                    wake_options=dict(options)
+                    if bare:wake_options['allow_bare']=True
+                    text=voice.listen_wake(self.stop_voice,on_state=lambda state:self.results.put(('mic_state',epoch,state)),**wake_options)
+                elif natural: text=voice.listen(self.stop_voice,seconds=12,end_on_phrase=True,on_ready=lambda:self.results.put(('mic_state',epoch,'Micrófono activo: hablá y hacé una pausa al terminar (máx. 12 s).')),**options)
+                else: text=voice.listen(self.stop_voice,on_ready=lambda:self.results.put(('mic_state',epoch,'Micrófono activo: hablá ahora (6 segundos).')),**options)
+                self.results.put(('voice_test' if testing else 'voice',epoch,wake,text,None))
+            except Exception as e: self.results.put(('voice_test' if testing else 'voice',epoch,wake,'',str(e)))
+        self.shutdown.start(work)
     def speak(self,text,settings=None):
-        if self.speak_busy or self.listen_busy: return
+        if self.closed or self.speak_busy or self.listen_busy: return
         selected=dict(self.voice_settings if settings is None else settings)
         self.speak_busy=True; self.vstatus.set('Leyendo respuesta…')
         def work():
-            try:
-                voice_output.speak(CONFIG.parent,selected,text); self.results.put(('spoken',None))
+            try: voice_output.speak(CONFIG.parent,selected,text); self.results.put(('spoken',None))
             except Exception as e: self.results.put(('spoken',str(e)))
-        threading.Thread(target=work,daemon=True).start()
+        self.shutdown.start(work)
     def save(self):
         s=self.active(); frame=s.frame()
         if frame is None: messagebox.showwarning('Cámara','Conectá la cámara seleccionada primero.'); return
@@ -299,7 +319,7 @@ class App:
             elif kind=='mic_state':
                 epoch,state=r
                 if epoch==self.voice_epoch and not self.stop_voice.is_set(): self.vstatus.set(state)
-            elif kind=='voice':
+            elif kind in ('voice','voice_test'):
                 self.listen_busy=False; self.vbutton.configure(state='normal'); epoch,wake,text,error=r
                 if epoch!=self.voice_epoch or self.stop_voice.is_set(): continue
                 if error:
@@ -307,7 +327,8 @@ class App:
                     self.vstatus.set('Error de voz: '+error)
                 elif text:
                     self.question.delete(0,'end'); self.question.insert(0,text); self.vstatus.set('Pregunta reconocida.')
-                    if wake or self.auto_ask.get(): self.ask()
+                    if kind=='voice_test':self.vstatus.set('Prueba de micrófono: transcripción lista, sin consulta a IA.')
+                    elif wake or self.auto_ask.get(): self.ask()
                 else: self.vstatus.set('No se reconoció voz. Probá nuevamente.')
             elif kind=='spoken': self.speak_busy=False; self.vstatus.set('Error de voz: '+r[0] if r[0] else 'Respuesta leída')
         if self.pending_speech is not None and not (self.listen_busy or self.speak_busy):
@@ -315,17 +336,30 @@ class App:
         if self.wake_enabled and not (self.listen_busy or self.ask_busy or self.speak_busy): self.listen(wake=True)
         s=self.active(); frame=s.frame(); now=time.monotonic()
         if self.detection_on and frame is not None and not self.detect_busy and now-self.last_detection>.65:
-            self.detect_busy=True; self.last_detection=now; threading.Thread(target=self.detect,args=(frame.copy(),s.num,s.generation,self.detect_epoch),daemon=True).start()
-        self.root.after(15,self.tick)
+            self.detect_busy=True; self.last_detection=now; self.shutdown.start(self.detect,(frame.copy(),s.num,s.generation,self.detect_epoch))
+        self.tick_id=self.root.after(15,self.tick)
     def open_updates(self):
         if messagebox.askyesno('Actualizaciones','Se cerrará la sesión actual para abrir el gestor. Las preferencias y archivos locales se conservarán. ¿Continuar?'):
             self.update_requested=True; self.close()
     def close(self):
-        self.closed=True; self.stop_voice.set()
-        for s in self.slots:
-            if s.capture: s.capture.stop.set()
+        if self.closed:return
+        self.closed=True; self.wake_enabled=False; self.pending_speech=None; self.voice_epoch+=1
+        captures=[s.capture for s in self.slots if s.capture]
+        self.shutdown.begin([self.stop_voice]+[c.stop for c in captures],[c.thread for c in captures],
+                            exit_code=(UPDATE_EXIT if self.update_requested else 0) if self.exit_guard else None)
+        if self.tick_id is not None:
+            try:self.root.after_cancel(self.tick_id)
+            except tk.TclError:pass
         self.root.destroy()
 
 def main():
-    parser=argparse.ArgumentParser(); parser.add_argument('--camera',type=int,default=None,choices=range(32)); args=parser.parse_args(); root=tk.Tk(); app=App(root,args.camera); root.mainloop(); return UPDATE_EXIT if app.update_requested else 0
-if __name__=='__main__': raise SystemExit(main())
+    parser=argparse.ArgumentParser(); parser.add_argument('--camera',type=int,default=None,choices=range(32)); args=parser.parse_args(); root=tk.Tk(); app=App(root,args.camera); app.exit_guard=True
+    try:root.mainloop()
+    finally:
+        if not app.closed:app.close()
+        app.shutdown.wait(2)
+    return UPDATE_EXIT if app.update_requested else 0
+if __name__=='__main__':
+    # All persistent user writes are synchronous; bounded worker cleanup precedes exit.
+    # Avoid native library/interpreter finalization hanging after the GUI is gone.
+    os._exit(main())

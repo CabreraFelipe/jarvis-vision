@@ -120,8 +120,12 @@ class App:
         self.mode=tk.StringVar(value='Visual'); ttk.Combobox(side,textvariable=self.mode,values=['Visual','Conversación sin cámara'],state='readonly').pack(fill='x',pady=3)
         self.abutton=ttk.Button(side,text='Enviar pregunta',command=self.ask); self.abutton.pack(fill='x',pady=4)
         self.context_on=tk.BooleanVar(value=True); ttk.Checkbutton(side,text='Contexto de esta sesión',variable=self.context_on,command=self.clear_context).pack(anchor='w'); ttk.Button(side,text='Nueva conversación / borrar contexto',command=self.clear_context).pack(fill='x',pady=2)
+        self.natural_turn=tk.BooleanVar(value=False)
+        ttk.Checkbutton(side,text='Terminar al detectar una pausa',variable=self.natural_turn,command=self.update_voice_button).pack(anchor='w')
         self.vbutton=ttk.Button(side,text='Hablar (6 s)',command=self.listen); self.vbutton.pack(fill='x'); ttk.Button(side,text='Cancelar micrófono',command=self.cancel_voice).pack(fill='x',pady=3)
         self.auto_ask=tk.BooleanVar(value=False); ttk.Checkbutton(side,text='Analizar automáticamente al hablar',variable=self.auto_ask).pack(anchor='w')
+        self.bare_wake=tk.BooleanVar(value=False)
+        self.bare_check=ttk.Checkbutton(side,text='Permitir también «JARVIS» solo',variable=self.bare_wake); self.bare_check.pack(anchor='w')
         self.wbutton=ttk.Button(side,text='Activar «Hola, JARVIS»',command=self.toggle_wake); self.wbutton.pack(fill='x',pady=3)
         self.auto_speak=tk.BooleanVar(value=False); ttk.Checkbutton(side,text='Leer respuestas en voz alta',variable=self.auto_speak).pack(anchor='w'); self.vstatus=tk.StringVar(value='Voz opcional · sin escucha permanente'); ttk.Label(side,textvariable=self.vstatus,wraplength=290).pack(fill='x',pady=4)
         ttk.Label(side,text='Ollama local · imágenes solo a pedido. Voz continua solo si la activás.',wraplength=290).pack(fill='x')
@@ -191,17 +195,24 @@ class App:
             except Exception as e: self.results.put(('ask',s.num if visual else None,gen,'',str(e),request))
         threading.Thread(target=work,daemon=True).start()
     def cancel_voice(self):
-        self.wake_enabled=False; self.voice_epoch+=1; self.stop_voice.set(); self.pending_speech=None; self.wbutton.configure(text='Activar «Hola, JARVIS»'); self.vstatus.set('Micrófono desactivado; cerrando escucha si estaba activa.')
+        self.wake_enabled=False; self.bare_check.configure(state='normal'); self.voice_epoch+=1; self.stop_voice.set(); self.pending_speech=None; self.wbutton.configure(text='Activar «Hola, JARVIS»'); self.vstatus.set('Micrófono desactivado; cerrando escucha si estaba activa.')
     def toggle_wake(self):
         if self.wake_enabled: self.cancel_voice(); return
-        self.wake_enabled=True; self.auto_speak.set(True); self.wbutton.configure(text='Desactivar «Hola, JARVIS»'); self.vstatus.set('Activación habilitada; preparando micrófono…')
+        self.wake_enabled=True; self.bare_check.configure(state='disabled'); self.auto_speak.set(True); self.wbutton.configure(text='Desactivar «Hola, JARVIS»'); self.vstatus.set('Activación habilitada; preparando micrófono…')
+    def update_voice_button(self):
+        self.vbutton.configure(text='Hablar (hasta 12 s)' if self.natural_turn.get() else 'Hablar (6 s)')
     def listen(self, wake=False):
         if self.listen_busy or self.speak_busy or self.ask_busy: return
         if not wake and self.wake_enabled: return
         self.listen_busy=True; self.stop_voice.clear(); self.voice_epoch+=1; epoch=self.voice_epoch; self.vbutton.configure(state='disabled'); self.vstatus.set('Preparando micrófono…')
+        natural=self.natural_turn.get() and not wake
+        bare=self.bare_wake.get() and wake
         def work():
             try:
-                if wake: text=voice.listen_wake(self.stop_voice,on_state=lambda state:self.results.put(('mic_state',epoch,state)))
+                if wake:
+                    options={'allow_bare':True} if bare else {}
+                    text=voice.listen_wake(self.stop_voice,on_state=lambda state:self.results.put(('mic_state',epoch,state)),**options)
+                elif natural: text=voice.listen(self.stop_voice,seconds=12,end_on_phrase=True,on_ready=lambda:self.results.put(('mic_state',epoch,'Micrófono activo: hablá y hacé una pausa al terminar (máx. 12 s).')))
                 else: text=voice.listen(self.stop_voice,on_ready=lambda:self.results.put(('mic_state',epoch,'Micrófono activo: hablá ahora (6 segundos).')))
                 self.results.put(('voice',epoch,wake,text,None))
             except Exception as e: self.results.put(('voice',epoch,wake,'',str(e)))

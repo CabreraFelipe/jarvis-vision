@@ -1,3 +1,18 @@
+V0.6.1 — Voz y arranque de cámara acumulativos
+==================================================
+Actualización directa desde V0.5.4 o V0.6.0. Gestor revisión 2 sin cambios.
+Mantener la configuración funcional de Redragon. En action camera, elegir
+el índice conocido, Compatibilidad, Automático y controlador DirectShow
+o Media Foundation explícito. Confirmar que la imagen sea la correcta.
+La primera conexión exitosa guarda su receta; repetir con exactamente
+los mismos ajustes. Medir Inicio (segundos), resolución y FPS efectivos.
+Inicio rápido también prueba modo nativo si formato Automático.
+Si falla, vuelve a la negociación anterior. No modificar índices automáticamente.
+Vosk y Sistema siguen predeterminados. Whisper y Piper son opcionales;
+consultar VOZ.txt para requisitos y modelos locales. No se instalan
+dependencias opcionales automáticamente. Probar cada motor por separado.
+No hay detector acústico dedicado ni interrupción acústica durante TTS.
+
 V0.6.0 — Primer bloque de voz neuronal y conversación
 ====================================================
 Actualización acumulativa sobre V0.5.4, sin cambios en cámara o gestor.

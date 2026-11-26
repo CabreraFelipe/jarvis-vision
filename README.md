@@ -1,4 +1,6 @@
-# JARVIS Vision — V0.6.0
+# JARVIS Vision — V0.6.1
+
+V0.6.1: arranque compatible con receta de apertura recordada para perfiles explícitos y controlador manual; muestra segundos hasta primera imagen. Vuelve a negociación si la receta falla. Ruta normal de cámaras y gestor revisión 2 intactos. V0.6.0 publicada con CI completa; PR17 superada en ambos sistemas. CI final y validación física pendientes. Actualización directa desde V0.5.4.
 
 V0.6.0: reconocimiento opcional Faster-Whisper small, voz neuronal opcional Piper, activación experimental Whisper, seguimiento opt-in de hasta cinco turnos y comandos locales de parada. Vosk y voz de Sistema se mantienen por defecto. PR15, PR11 y PR16 superaron CI Windows/Linux; pendiente publicación y validación física de los modelos. No hay instalación automática de paquetes/modelos nuevos ni detector acústico dedicado o interrupción durante reproducción. Cámara y gestor conservados.
 

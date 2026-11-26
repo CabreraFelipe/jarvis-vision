@@ -1,3 +1,5 @@
+V0.6.1: PR17 superó CI Windows/Linux (45888694892); V0.6.0 publicada con CI completa (45888511079). Pendiente CI final. Comparar cinco conexiones con mismos ajustes de action camera, tiempo de inicio, FPS y resolución; probar dos cámaras y regresiones de cierre. Probar nuevos motores de voz por separado y conservar los anteriores. Sin mediciones físicas nuevas.
+
 V0.6.0: pruebas de PR15 (45886534075), PR11 (45886800384), PR16 (45888087498) superadas Windows/Linux. Pendiente CI final y pruebas físicas. Probar primero Vosk/sistema, luego Whisper manual, activación experimental, seguimiento y Piper. Validar memoria, perfiles, cierre y gestor revisión 2. No considerar real la precisión, latencia o estabilidad de modelos simulados.
 
 V0.5.4: PR14 CI Windows/Linux superada (45879415845). Validación final de publicación pendiente. Repetir cinco conexiones de action camera, cinco aperturas/cierres de app, captura dual, prueba de micrófono y comprobación de procesos propios. No afirmar resolución física hasta que el usuario confirme.

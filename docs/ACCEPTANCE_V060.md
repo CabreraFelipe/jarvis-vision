@@ -1,3 +1,6 @@
 # V0.6.0: aceptación física pendiente
 
 V0.5.4 instalada y gestor revisión 2 confirmados; Redragon fluida, sin CMD, doble apertura recupera ventana, cinco cierres sin residuos. Action camera pausada por problema del propio dispositivo comunicado por usuario. V0.6.0 añade voz opcional sin tocar cámara/gestor. CI de PR15, PR11, PR16 superada. Verificar publicación autenticada antes de pedir instalación. Validar Vosk y Sistema, instalar opcionalmente dependencias/modelo Whisper, probar frase manual, activar Whisper experimental, verificar rechazo de frases ajenas, comando completo, pausa, seguimiento y detención; probar Piper con modelo confiable. Medir latencia y precisión real, volver a comprobar cierre y datos. No dar por resueltos reconocimiento inicial ni action camera. No detector especializado ni interrupción acústica aún.
+
+
+V0.6.0 publicada correctamente, CI 45888511079. V0.6.1 candidata añade optimización de inicio, PR17 CI 45888694892 superada. Usuario informó recuperación de action camera y detección con demora, sin tiempos medidos. Instalar V0.6.1 acumulativa cuando CI final concluya. Validar datos y preferencias, apertura repetida, captura simultánea, voz y cierre. No confundir conexión exitosa puntual con cinco arranques confirmados.

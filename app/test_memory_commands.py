@@ -33,7 +33,7 @@ class CommandTests(unittest.TestCase):
         execute(self.store,parse('Olvidá me gusta el cine'),self.confirm)
         self.assertEqual(len(self.store.items()),2)
         self.confirm.return_value=True
-        execute(self.store,parse('Olvidá me gusta el cine'),self.confirm)
+        execute(self.store,parse('Olvidá que me gusta el cine'),self.confirm)
         self.assertEqual([t for _,t in self.store.items()],['Me gusta el cine francés.'])
     def test_style_preserves_memory_and_consent(self):
         self.store.add('nota')

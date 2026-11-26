@@ -85,3 +85,26 @@ with tempfile.TemporaryDirectory() as d, patch('camera.cv2.VideoCapture',FakeCap
         print('UI comandos de memoria: voz, consentimiento, sin IA y cancelación de borrado OK')
     finally:
         app.close();assert app.shutdown.wait(2)
+
+# Suggestions are opt-in, never written by inference; privacy gate clears pending review.
+with tempfile.TemporaryDirectory() as d, patch('camera.cv2.VideoCapture',FakeCap), patch.object(j,'CONFIG',Path(d)/'config.json'), patch.object(j,'ask_vision',return_value='ok'), patch.object(j.messagebox,'askyesno',return_value=False) as confirm:
+    root=tk.Tk();app=j.App(root,0)
+    try:
+        app.mode.set('Conversación sin cámara')
+        app.memory.configure(True,'Normal',suggestions=True)
+        def ask_pref():
+            app.question.delete(0,'end');app.question.insert(0,'Prefiero respuestas cortas.')
+            assert app.ask();wait(root,lambda:not app.ask_busy)
+        ask_pref()
+        assert app.pending_preference=='Prefiero respuestas cortas.' and not app.memory.items()
+        app.review_preference();assert not app.memory.items() and app.pending_preference is None
+        ask_pref()
+        app.context_on.set(False);app.clear_context()
+        assert app.pending_preference is None
+        app.context_on.set(True);ask_pref()
+        confirm.return_value=True;app.review_preference()
+        assert app.memory.items()[0][1]=='Prefiero respuestas cortas.'
+        ask_pref();assert app.pending_preference is None
+        print('UI sugerencias: opt-in, revisión, rechazo, contexto privado y deduplicación OK')
+    finally:
+        app.close();assert app.shutdown.wait(2)

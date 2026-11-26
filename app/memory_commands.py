@@ -32,7 +32,10 @@ def execute(store,command,confirm):
         if not confirm('Guardar recuerdo',value):return 'Recuerdo no guardado.'
         return 'Recuerdo guardado.' if store.add(value) else 'Ese recuerdo ya existe.'
     if action=='remove':
-        matches=[(i,t) for i,t in store.items() if normalize(t).strip(' .!?')==normalize(value)]
+        target=normalize(value)
+        variants={target}
+        if target.startswith('que '): variants.add(target[4:])
+        matches=[(i,t) for i,t in store.items() if normalize(t).strip(' .!?') in variants]
         if len(matches)!=1:return 'No hay un recuerdo exacto y único. Consultá Memoria y personalidad para elegirlo.'
         i,text=matches[0]
         if not confirm('Eliminar este recuerdo',text):return 'Recuerdo conservado.'

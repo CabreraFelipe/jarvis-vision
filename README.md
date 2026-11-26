@@ -1,4 +1,6 @@
-# JARVIS Vision — V0.5.4
+# JARVIS Vision — V0.6.0
+
+V0.6.0: reconocimiento opcional Faster-Whisper small, voz neuronal opcional Piper, activación experimental Whisper, seguimiento opt-in de hasta cinco turnos y comandos locales de parada. Vosk y voz de Sistema se mantienen por defecto. PR15, PR11 y PR16 superaron CI Windows/Linux; pendiente publicación y validación física de los modelos. No hay instalación automática de paquetes/modelos nuevos ni detector acústico dedicado o interrupción durante reproducción. Cámara y gestor conservados.
 
 V0.5.4: actualización acumulativa de cierre de sesión, selección de micrófono/modelo y recuperación USB limitada. Modos Compatibilidad e Inicio rápido toleran lecturas iniciales fallidas y hasta dos reconexiones; el modo normal conserva su negociación. CI PR14 superada; validación física pendiente. No requiere instalar V0.5.3 primero.
 

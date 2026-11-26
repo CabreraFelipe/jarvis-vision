@@ -1,3 +1,5 @@
+V0.6.0: pruebas de PR15 (45886534075), PR11 (45886800384), PR16 (45888087498) superadas Windows/Linux. Pendiente CI final y pruebas físicas. Probar primero Vosk/sistema, luego Whisper manual, activación experimental, seguimiento y Piper. Validar memoria, perfiles, cierre y gestor revisión 2. No considerar real la precisión, latencia o estabilidad de modelos simulados.
+
 V0.5.4: PR14 CI Windows/Linux superada (45879415845). Validación final de publicación pendiente. Repetir cinco conexiones de action camera, cinco aperturas/cierres de app, captura dual, prueba de micrófono y comprobación de procesos propios. No afirmar resolución física hasta que el usuario confirme.
 
 V0.5.3: pruebas de PR12 y PR13 superadas en Windows y Linux (45878477824, 45878869912). Pendiente CI final y validación física. Probar arranque rápido, ambas cámaras, selección de micrófono y transcripción, cierre repetido, revisión 2 del gestor y conservación de memoria/configuración. No se ha medido el modelo Vosk completo en el PC del usuario.

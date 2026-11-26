@@ -70,3 +70,5 @@ Marcar Continuar conversación y activar Hola JARVIS. Tras respuesta válida, y 
 Las formas rioplatenses «Dejá de escuchar» y «Terminá la conversación» también se reconocen como órdenes locales exactas; no se envían a IA.
 
 Activación experimental Whisper: elegir Whisper small y marcar la casilla explícita en Herramientas > Micrófono y reconocimiento. Segmentación por energía (umbral inicial fijo), pausa de 700 ms y captura máxima de 6 s por segmento; el micrófono se cierra durante inferencia. Solo una frase de activación reconocida habilita una consulta, como en Vosk. No es detector acústico dedicado ni escucha sin interrupciones. Puede perder palabras mientras transcribe, consumir CPU y tener falsos positivos/negativos. Desmarcar para conservar Vosk. No se guarda audio.
+
+V0.6.0 reúne los motores opcionales. No activar ambos sin verificar primero que cada uno funciona. Los modelos deben provenir de fuentes confiables con licencia revisada. Las pruebas automatizadas sustituyen los motores por simulaciones; la instalación real, rendimiento, reconocimiento y naturalidad siguen pendientes. Mantener Vosk y Sistema como alternativas. No se modifica action camera.

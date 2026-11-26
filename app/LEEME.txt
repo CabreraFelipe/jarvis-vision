@@ -1,3 +1,24 @@
+V0.6.0 — Primer bloque de voz neuronal y conversación
+====================================================
+Actualización acumulativa sobre V0.5.4, sin cambios en cámara o gestor.
+Vosk y voz de Sistema siguen siendo los motores predeterminados.
+Herramientas > Micrófono y reconocimiento: seleccionar entrada, probar
+transcripción y guardar. Vosk Completo y Whisper small requieren modelos
+locales. Whisper necesita dependencias opcionales, no instaladas por el
+actualizador. Consultar VOZ.txt antes de activar motores nuevos.
+Herramientas > Configurar voz: Sistema o Piper local, previa instalación
+opcional de paquete y modelo ONNX+JSON. Probar y guardar.
+Continuar conversación: opt-in por sesión, hasta cinco turnos adicionales
+con escucha de hasta ocho segundos; no hay escucha durante respuesta.
+Decir «Terminá la conversación» o «Dejá de escuchar» para detener el modo.
+Activación experimental Whisper: marcar explícitamente la opción al elegir
+Whisper small; no es un detector acústico especializado. Puede tener demora.
+No hay interrupción acústica de reproducción todavía.
+Probar primero con motores existentes, luego transcripción Whisper, después
+activación y seguimiento, finalmente Piper. No descargar automáticamente.
+Conservar modelos y preferencias existentes; datos locales no se migran
+fuera de la instalación. Action camera pendiente de diagnóstico físico.
+
 V0.5.4 — Actualización acumulativa
 ====================================
 Incluye todas las funciones de V0.5.2 y V0.5.3.

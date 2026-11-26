@@ -26,7 +26,7 @@ class ReleaseTests(unittest.TestCase):
             root=Path(d); pkg,feed=build('CabreraFelipe/jarvis-vision',root/'dist'); m=Manager(root/'user')
             prior=root/'prior.zip'
             with zipfile.ZipFile(pkg) as z, zipfile.ZipFile(prior,'w') as old:
-                manifest=json.loads(z.read('release.json')); current=feed['version']; parts=list(map(int,current.split('.'))); prior_version='0.4.4' if current=='0.5.0' else ('.'.join(map(str,[parts[0],parts[1],parts[2]-1])) if parts[2] else '.'.join(map(str,[parts[0],parts[1]-1,0]))); manifest['version']=prior_version
+                manifest=json.loads(z.read('release.json')); current=feed['version']; parts=list(map(int,current.split('.'))); prior_version='0.5.4' if current=='0.6.0' else '0.4.4' if current=='0.5.0' else ('.'.join(map(str,[parts[0],parts[1],parts[2]-1])) if parts[2] else '.'.join(map(str,[parts[0],parts[1]-1,0]))); manifest['version']=prior_version
                 for name in manifest['files']:
                     data=z.read('app/'+name)
                     if name=='jarvis_vision.py':data=data.replace(f"VERSION='{current}'".encode(),f"VERSION='{prior_version}'".encode())

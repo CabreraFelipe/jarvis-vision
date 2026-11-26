@@ -4,3 +4,6 @@ V0.5.4 instalada y gestor revisión 2 confirmados; Redragon fluida, sin CMD, dob
 
 
 V0.6.0 publicada correctamente, CI 45888511079. V0.6.1 candidata añade optimización de inicio, PR17 CI 45888694892 superada. Usuario informó recuperación de action camera y detección con demora, sin tiempos medidos. Instalar V0.6.1 acumulativa cuando CI final concluya. Validar datos y preferencias, apertura repetida, captura simultánea, voz y cierre. No confundir conexión exitosa puntual con cinco arranques confirmados.
+
+## Aceptación física V0.6.1 — 26/11/2026
+Usuario informó migración Python 3.12, dependencias, carga de Whisper y síntesis Piper exitosas. Confirmó todas las 15 casillas de aceptación: acceso directo Python 3.12 sin CMD, doble apertura, cinco conexiones action camera, ambas cámaras, Whisper manual, Piper, activación Vosk/Whisper, rechazo de frases ajenas, contexto, sin escucha durante TTS, silencio, parada y cinco cierres sin residuos. Confirmación declarada por usuario, no medición independiente. No entregó segundos de conexión ni latencia, ni confirmó respaldo por separado; no inferir mejoras cuantitativas ni respaldo verificado. Conservar motores y cámaras sin ajustes especulativos. V0.6.2 mejora diagnóstico e instrucciones manuales, no cambia motores.

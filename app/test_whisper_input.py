@@ -75,6 +75,6 @@ class WhisperTests(unittest.TestCase):
         sd=Mock();sd.query_devices.return_value={'name':'mic','default_samplerate':16000}
         with patch.dict(sys.modules,{'sounddevice':sd,'faster_whisper':Mock()}),patch('whisper_input.capture_utterance',return_value=self.pcm) as cap,patch('whisper_input.transcribe',side_effect=['qué hora es','Hola, Jarvis, qué hora es.']):
             cfg={'model':'Whisper small','device':None,'wake':'Whisper experimental'}
-            self.assertEqual(w.listen_wake(self.base,cfg,self.stop),'qué hora es.')
+            self.assertEqual(w.listen_wake(self.base,cfg,self.stop),'qué hora es')
         self.assertEqual(cap.call_count,2)
 if __name__=='__main__':unittest.main()

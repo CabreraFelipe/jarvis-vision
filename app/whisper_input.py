@@ -142,9 +142,11 @@ def listen_wake(base,settings,stop,on_state=None,*,allow_bare=False):
         if not pcm:
             gate.expire(time.monotonic());continue
         if on_state:on_state('Whisper local · transcribiendo; micrófono pausado')
+        captured_at=time.monotonic()
         text=transcribe(base,pcm,rate,stop).lstrip('¿¡ ')
         if stop.is_set():return ''
-        command=gate.feed(text,time.monotonic())
+        # Speech arrived before inference; do not consume the command window while decoding.
+        command=gate.feed(text,captured_at if active else time.monotonic())
         if command:return command
         if on_state and text and gate.until is None:on_state('En espera · Whisper entendió: «'+text[:140]+'»')
     return ''

@@ -6,7 +6,7 @@ from urllib.request import Request, build_opener, HTTPRedirectHandler
 from urllib.parse import urlparse
 
 PROTOCOL=1
-MANAGER_REVISION=1
+MANAGER_REVISION=2
 TRUSTED_REPO='CabreraFelipe/jarvis-vision'
 TRUSTED_FEED=f'https://github.com/{TRUSTED_REPO}/releases/latest/download/feed.json'
 TRUSTED_WORKFLOW=f'{TRUSTED_REPO}/.github/workflows/release.yml@refs/heads/main'
@@ -39,6 +39,58 @@ def digest(data): return hashlib.sha256(data).hexdigest()
 
 def quiet_process_options():
     return {'creationflags':subprocess.CREATE_NO_WINDOW} if os.name=='nt' else {}
+
+class WindowsSessionJob:
+    """Private Windows job: OS closes only processes assigned to this session."""
+    def __init__(self):
+        import ctypes
+        from ctypes import wintypes as w
+        self.ctypes=ctypes
+        k=ctypes.WinDLL('kernel32',use_last_error=True);self.kernel=k
+        class Basic(ctypes.Structure):
+            _fields_=[('PerProcessUserTimeLimit',ctypes.c_longlong),('PerJobUserTimeLimit',ctypes.c_longlong),
+                      ('LimitFlags',w.DWORD),('MinimumWorkingSetSize',ctypes.c_size_t),('MaximumWorkingSetSize',ctypes.c_size_t),
+                      ('ActiveProcessLimit',w.DWORD),('Affinity',ctypes.c_size_t),('PriorityClass',w.DWORD),('SchedulingClass',w.DWORD)]
+        class IO(ctypes.Structure):
+            _fields_=[(name,ctypes.c_ulonglong) for name in ('ReadOperationCount','WriteOperationCount','OtherOperationCount','ReadTransferCount','WriteTransferCount','OtherTransferCount')]
+        class Extended(ctypes.Structure):
+            _fields_=[('BasicLimitInformation',Basic),('IoInfo',IO),('ProcessMemoryLimit',ctypes.c_size_t),('JobMemoryLimit',ctypes.c_size_t),('PeakProcessMemoryUsed',ctypes.c_size_t),('PeakJobMemoryUsed',ctypes.c_size_t)]
+        k.CreateJobObjectW.argtypes=[ctypes.c_void_p,w.LPCWSTR];k.CreateJobObjectW.restype=w.HANDLE
+        k.SetInformationJobObject.argtypes=[w.HANDLE,ctypes.c_int,ctypes.c_void_p,w.DWORD];k.SetInformationJobObject.restype=w.BOOL
+        k.AssignProcessToJobObject.argtypes=[w.HANDLE,w.HANDLE];k.AssignProcessToJobObject.restype=w.BOOL
+        k.CloseHandle.argtypes=[w.HANDLE];k.CloseHandle.restype=w.BOOL
+        self.handle=k.CreateJobObjectW(None,None)
+        if not self.handle:raise ctypes.WinError(ctypes.get_last_error())
+        info=Extended();info.BasicLimitInformation.LimitFlags=0x2000 # KILL_ON_JOB_CLOSE
+        if not k.SetInformationJobObject(self.handle,9,ctypes.byref(info),ctypes.sizeof(info)):
+            error=ctypes.get_last_error();self.close();raise ctypes.WinError(error)
+    def assign(self,process):
+        if not self.kernel.AssignProcessToJobObject(self.handle,int(process._handle)):
+            raise self.ctypes.WinError(self.ctypes.get_last_error())
+    def close(self):
+        if self.handle:
+            self.kernel.CloseHandle(self.handle);self.handle=None
+
+def run_owned_session(cmd,*,cwd,env):
+    """Wait for the direct child; never enumerate or terminate unrelated processes."""
+    job=None; process=None
+    try:
+        if os.name=='nt':
+            try:job=WindowsSessionJob()
+            except OSError:pass  # restricted job environments retain cooperative app shutdown
+        process=subprocess.Popen(cmd,cwd=cwd,env=env,**quiet_process_options())
+        if job:
+            try:job.assign(process)
+            except OSError:
+                job.close();job=None
+        return process.wait()
+    finally:
+        if job:job.close()
+        if process is not None and process.poll() is None:
+            process.terminate()
+            try:process.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                process.kill();process.wait(timeout=3)
 
 def verify_artifact(path):
     """Use a separately installed trusted GitHub CLI. Failure never permits installation."""
@@ -214,7 +266,7 @@ class Manager:
         atomic_json(self.statefile,{'active':prior,'previous':s['active'],'highest':s['highest']}); return prior
     def launch(self,args=()):
         path=self.verified(self.state()['active']); env=os.environ.copy(); env.update(JARVIS_DATA_DIR=str(self.root),JARVIS_MANAGED='1')
-        return subprocess.call([sys.executable,str(path/'jarvis_vision.py'),*args],cwd=self.root,env=env,**quiet_process_options())
+        return run_owned_session([sys.executable,str(path/'jarvis_vision.py'),*args],cwd=self.root,env=env)
     def feed(self): return read_json(self.feedfile).get('url','') if self.feedfile.exists() else ''
     def set_feed(self,url):
         if url and url!=TRUSTED_FEED: raise ValueError('Solo se permite el canal oficial de JARVIS.')
@@ -421,4 +473,10 @@ def main():
         root.destroy(); return 0
     except Exception as e:
         root=tk.Tk(); root.withdraw(); messagebox.showerror('JARVIS',str(e),parent=root); root.destroy(); return 1
-if __name__=='__main__': raise SystemExit(main())
+if __name__=='__main__':
+    result=main()
+    for stream in (sys.stdout,sys.stderr):
+        if stream is not None:
+            try:stream.flush()
+            except OSError:pass
+    os._exit(result)

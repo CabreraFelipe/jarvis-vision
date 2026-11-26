@@ -4,7 +4,7 @@ import tkinter as tk
 from tkinter import ttk
 from diagnostics import collect
 
-def open_diagnostics(parent,base,version,device_status):
+def open_diagnostics(parent,base,version,device_status,start_worker=None):
     win=tk.Toplevel(parent); win.title('JARVIS · Diagnóstico'); win.geometry('650x490'); win.transient(parent)
     panel=ttk.Frame(win,padding=12); panel.pack(fill='both',expand=True)
     ttk.Label(panel,text='Diagnóstico local',font=('Segoe UI',16,'bold')).pack(anchor='w')
@@ -18,7 +18,8 @@ def open_diagnostics(parent,base,version,device_status):
         def work():
             try: results.put(current+collect(base,version))
             except Exception: results.put(current+[('Diagnóstico','No se pudo completar')])
-        threading.Thread(target=work,daemon=True).start()
+        if start_worker is None:threading.Thread(target=work,daemon=True).start()
+        else:start_worker(work)
         win.after(50,poll)
     def poll():
         if not win.winfo_exists(): return

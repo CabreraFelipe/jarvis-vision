@@ -14,6 +14,7 @@ from camera import Capture, MODES, FORMATS, FPS, BACKENDS, load_config, save_con
 from vision import ask_vision
 import voice
 from instance_focus import poll_focus
+from shutdown import Shutdown
 from assistant_core import AssistantCore
 from memory import Memory
 from memory_ui import open_memory
@@ -116,7 +117,7 @@ class Slot:
 
 class App:
     def __init__(self,root,index=None):
-        self.root=root; self.closed=False; self.results=queue.Queue(); self.ask_busy=False; self.detect_busy=False; self.detector=None; self.detection_on=False; self.detect_epoch=0; self.last_detection=0; self.listen_busy=False; self.speak_busy=False; self.stop_voice=threading.Event(); self.core=AssistantCore(ask_vision); self.conversation=self.core.conversation; self.wake_enabled=False; self.voice_epoch=0; self.pending_speech=None
+        self.root=root; self.closed=False; self.shutdown=Shutdown(); self.exit_guard=False; self.tick_id=None; self.results=queue.Queue(); self.ask_busy=False; self.detect_busy=False; self.detector=None; self.detection_on=False; self.detect_epoch=0; self.last_detection=0; self.listen_busy=False; self.speak_busy=False; self.stop_voice=threading.Event(); self.core=AssistantCore(ask_vision); self.conversation=self.core.conversation; self.wake_enabled=False; self.voice_epoch=0; self.pending_speech=None
         self.memory=Memory(CONFIG.parent/'jarvis_memory.sqlite3'); self.memory_window=None; self.diagnostics_window=None
         a,b,self.profiles=load_config(CONFIG)
         if index is not None: a=dict(self.profiles.get(str(index),a)); a['index']=index
@@ -154,7 +155,7 @@ class App:
         self.auto_speak=tk.BooleanVar(value=False); ttk.Checkbutton(side,text='Leer respuestas en voz alta',variable=self.auto_speak).pack(anchor='w'); self.vstatus=tk.StringVar(value='Voz opcional · sin escucha permanente'); ttk.Label(side,textvariable=self.vstatus,wraplength=290).pack(fill='x',pady=4)
         ttk.Label(side,text='Ollama local · imágenes solo a pedido. Voz continua solo si la activás.',wraplength=290).pack(fill='x')
         self.answer=tk.Text(side,wrap='word',height=8,width=30,font=('Segoe UI',10)); self.answer.pack(fill='both',expand=True); self.write('Conectá una cámara. Para preguntas instalá Ollama y gemma3:4b. Para voz, ver VOZ.txt.')
-        self.slots[0].connect(); self.root.after(15,self.tick)
+        self.slots[0].connect(); self.tick_id=self.root.after(15,self.tick)
     def show_diagnostics(self):
         if self.diagnostics_window is not None and self.diagnostics_window.winfo_exists():
             self.diagnostics_window.lift(); return
@@ -162,7 +163,7 @@ class App:
             return [(f'Cámara {s.num+1}',s.status.get().split('\n')[0]) for s in self.slots]+[
                 ('Micrófono','En uso' if self.listen_busy else 'Inactivo'),
                 ('Activación por voz','Habilitada' if self.wake_enabled else 'Desactivada')]
-        self.diagnostics_window=open_diagnostics(self.root,BASE,VERSION,status)
+        self.diagnostics_window=open_diagnostics(self.root,BASE,VERSION,status,start_worker=self.shutdown.start)
     def make_shortcut(self):
         if not messagebox.askyesno('Acceso directo','¿Crear o reemplazar el acceso directo JARVIS en el escritorio? Mantendrá el gestor de actualizaciones.',parent=self.root): return
         try:
@@ -217,7 +218,7 @@ class App:
         def work():
             try: self.results.put(('ask',s.num if visual else None,gen,self.core.answer(request),None,request))
             except Exception as e: self.results.put(('ask',s.num if visual else None,gen,'',str(e),request))
-        threading.Thread(target=work,daemon=True).start()
+        self.shutdown.start(work)
     def cancel_voice(self):
         self.wake_enabled=False; self.bare_check.configure(state='normal'); self.voice_epoch+=1; self.stop_voice.set(); self.pending_speech=None; self.wbutton.configure(text='Activar «Hola, JARVIS»'); self.vstatus.set('Micrófono desactivado; cerrando escucha si estaba activa.')
     def toggle_wake(self):
@@ -240,14 +241,14 @@ class App:
                 else: text=voice.listen(self.stop_voice,on_ready=lambda:self.results.put(('mic_state',epoch,'Micrófono activo: hablá ahora (6 segundos).')))
                 self.results.put(('voice',epoch,wake,text,None))
             except Exception as e: self.results.put(('voice',epoch,wake,'',str(e)))
-        threading.Thread(target=work,daemon=True).start()
+        self.shutdown.start(work)
     def speak(self,text):
         if self.speak_busy or self.listen_busy: return
         self.speak_busy=True; self.vstatus.set('Leyendo respuesta…')
         def work():
             try: voice.speak(text); self.results.put(('spoken',None))
             except Exception as e: self.results.put(('spoken',str(e)))
-        threading.Thread(target=work,daemon=True).start()
+        self.shutdown.start(work)
     def save(self):
         s=self.active(); frame=s.frame()
         if frame is None: messagebox.showwarning('Cámara','Conectá la cámara seleccionada primero.'); return
@@ -301,17 +302,30 @@ class App:
         if self.wake_enabled and not (self.listen_busy or self.ask_busy or self.speak_busy): self.listen(wake=True)
         s=self.active(); frame=s.frame(); now=time.monotonic()
         if self.detection_on and frame is not None and not self.detect_busy and now-self.last_detection>.65:
-            self.detect_busy=True; self.last_detection=now; threading.Thread(target=self.detect,args=(frame.copy(),s.num,s.generation,self.detect_epoch),daemon=True).start()
-        self.root.after(15,self.tick)
+            self.detect_busy=True; self.last_detection=now; self.shutdown.start(self.detect,(frame.copy(),s.num,s.generation,self.detect_epoch))
+        self.tick_id=self.root.after(15,self.tick)
     def open_updates(self):
         if messagebox.askyesno('Actualizaciones','Se cerrará la sesión actual para abrir el gestor. Las preferencias y archivos locales se conservarán. ¿Continuar?'):
             self.update_requested=True; self.close()
     def close(self):
-        self.closed=True; self.stop_voice.set()
-        for s in self.slots:
-            if s.capture: s.capture.stop.set()
+        if self.closed:return
+        self.closed=True; self.wake_enabled=False; self.pending_speech=None; self.voice_epoch+=1
+        captures=[s.capture for s in self.slots if s.capture]
+        self.shutdown.begin([self.stop_voice]+[c.stop for c in captures],[c.thread for c in captures],
+                            exit_code=(UPDATE_EXIT if self.update_requested else 0) if self.exit_guard else None)
+        if self.tick_id is not None:
+            try:self.root.after_cancel(self.tick_id)
+            except tk.TclError:pass
         self.root.destroy()
 
 def main():
-    parser=argparse.ArgumentParser(); parser.add_argument('--camera',type=int,default=None,choices=range(32)); args=parser.parse_args(); root=tk.Tk(); app=App(root,args.camera); root.mainloop(); return UPDATE_EXIT if app.update_requested else 0
-if __name__=='__main__': raise SystemExit(main())
+    parser=argparse.ArgumentParser(); parser.add_argument('--camera',type=int,default=None,choices=range(32)); args=parser.parse_args(); root=tk.Tk(); app=App(root,args.camera); app.exit_guard=True
+    try:root.mainloop()
+    finally:
+        if not app.closed:app.close()
+        app.shutdown.wait(2)
+    return UPDATE_EXIT if app.update_requested else 0
+if __name__=='__main__':
+    # All persistent user writes are synchronous; bounded worker cleanup precedes exit.
+    # Avoid native library/interpreter finalization hanging after the GUI is gone.
+    os._exit(main())

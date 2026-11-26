@@ -18,6 +18,7 @@ from voice_output_ui import open_voice_output
 import speech_input
 from speech_input_ui import open_speech_input
 from instance_focus import poll_focus
+from voice_followup import Followup,stop_phrase
 from shutdown import Shutdown
 from assistant_core import AssistantCore
 from memory import Memory
@@ -124,7 +125,7 @@ class Slot:
 
 class App:
     def __init__(self,root,index=None):
-        self.root=root; self.closed=False; self.shutdown=Shutdown(); self.exit_guard=False; self.tick_id=None; self.results=queue.Queue(); self.ask_busy=False; self.detect_busy=False; self.detector=None; self.detection_on=False; self.detect_epoch=0; self.last_detection=0; self.listen_busy=False; self.speak_busy=False; self.stop_voice=threading.Event(); self.core=AssistantCore(ask_vision); self.conversation=self.core.conversation; self.wake_enabled=False; self.voice_epoch=0; self.pending_speech=None
+        self.root=root; self.closed=False; self.shutdown=Shutdown(); self.exit_guard=False; self.tick_id=None; self.results=queue.Queue(); self.ask_busy=False; self.detect_busy=False; self.detector=None; self.detection_on=False; self.detect_epoch=0; self.last_detection=0; self.listen_busy=False; self.speak_busy=False; self.stop_voice=threading.Event(); self.core=AssistantCore(ask_vision); self.conversation=self.core.conversation; self.wake_enabled=False; self.voice_epoch=0; self.pending_speech=None; self.followup=Followup();self.followup_request=None
         self.memory=Memory(CONFIG.parent/'jarvis_memory.sqlite3'); self.memory_window=None; self.diagnostics_window=None; self.speech_input_window=None; self.voice_output_window=None
         self.voice_settings_path=CONFIG.parent/'voice_preferences.json';self.voice_settings=voice_output.load(self.voice_settings_path)
         self.speech_path=CONFIG.parent/'speech_input.json';self.speech_settings=speech_input.load(self.speech_path)
@@ -163,6 +164,8 @@ class App:
         self.bare_wake=tk.BooleanVar(value=False)
         self.bare_check=ttk.Checkbutton(side,text='Permitir también «JARVIS» solo',variable=self.bare_wake); self.bare_check.pack(anchor='w')
         self.wbutton=ttk.Button(side,text='Activar «Hola, JARVIS»',command=self.toggle_wake); self.wbutton.pack(fill='x',pady=3)
+        self.followup_on=tk.BooleanVar(value=False)
+        ttk.Checkbutton(side,text='Continuar conversación (máx. 5 turnos)',variable=self.followup_on,command=self.change_followup).pack(anchor='w')
         self.auto_speak=tk.BooleanVar(value=False); ttk.Checkbutton(side,text='Leer respuestas en voz alta',variable=self.auto_speak).pack(anchor='w'); self.vstatus=tk.StringVar(value='Voz opcional · sin escucha permanente'); ttk.Label(side,textvariable=self.vstatus,wraplength=290).pack(fill='x',pady=4)
         ttk.Label(side,text='Ollama local · imágenes solo a pedido. Voz continua solo si la activás.',wraplength=290).pack(fill='x')
         self.answer=tk.Text(side,wrap='word',height=8,width=30,font=('Segoe UI',10)); self.answer.pack(fill='both',expand=True); self.write('Conectá una cámara. Para preguntas instalá Ollama y gemma3:4b. Para voz, ver VOZ.txt.')
@@ -227,35 +230,45 @@ class App:
             boxes=[(tuple(map(int,b.xyxy[0].tolist())),result.names[int(b.cls.item())],float(b.conf.item())) for b in result.boxes]
             self.results.put(('detect',slot,gen,epoch,boxes,None))
         except Exception as e: self.results.put(('detect',slot,gen,epoch,[],str(e)))
+    def change_followup(self):
+        self.followup.reset();self.followup_request=None
+        if self.listen_busy and getattr(self,'listening_followup',False):
+            self.stop_voice.set();self.voice_epoch+=1
     def clear_context(self):
-        self.core.clear(); self.pending_speech=None; self.write('Contexto borrado. Nueva conversación.')
-    def ask(self):
-        if self.ask_busy: return
+        self.change_followup();self.core.clear(); self.pending_speech=None; self.write('Contexto borrado. Nueva conversación.')
+    def ask(self,follow_epoch=None):
+        if self.closed or self.ask_busy: return False
+        if follow_epoch is None:self.change_followup()
         s=self.active(); visual=self.mode.get()=='Visual'; frame=s.frame() if visual else None; question=self.question.get().strip()
-        if visual and frame is None: self.write('Conectá la cámara seleccionada o elegí Conversación sin cámara.'); return
-        if not question: return
+        if visual and frame is None: self.write('Conectá la cámara seleccionada o elegí Conversación sin cámara.'); return False
+        if not question: return False
         # Stop recording before inference; defer speech until the stream is closed.
         if self.listen_busy:
             self.stop_voice.set(); self.voice_epoch+=1
         self.ask_busy=True; self.abutton.configure(state='disabled'); source=f'Cámara {s.num+1}' if visual else 'Sin cámara'; self.write(f'{source}: procesando…'); gen=s.generation
         try: style,memories=self.memory.snapshot(question)
         except Exception as e:
-            self.ask_busy=False; self.abutton.configure(state='normal'); self.write('No se pudo leer la memoria: '+str(e)); return
+            self.ask_busy=False; self.abutton.configure(state='normal'); self.write('No se pudo leer la memoria: '+str(e)); return False
         request=self.core.prepare(question,source,frame,self.context_on.get(),style,memories if self.context_on.get() else ())
+        self.followup_request=follow_epoch
         def work():
             try: self.results.put(('ask',s.num if visual else None,gen,self.core.answer(request),None,request))
             except Exception as e: self.results.put(('ask',s.num if visual else None,gen,'',str(e),request))
         self.shutdown.start(work)
+        return True
     def cancel_voice(self):
+        self.change_followup()
         self.wake_enabled=False; self.bare_check.configure(state='normal'); self.voice_epoch+=1; self.stop_voice.set(); self.pending_speech=None; self.wbutton.configure(text='Activar «Hola, JARVIS»'); self.vstatus.set('Micrófono desactivado; cerrando escucha si estaba activa.')
     def toggle_wake(self):
         if self.wake_enabled: self.cancel_voice(); return
         self.wake_enabled=True; self.bare_check.configure(state='disabled'); self.auto_speak.set(True); self.wbutton.configure(text='Desactivar «Hola, JARVIS»'); self.vstatus.set('Activación habilitada; preparando micrófono…')
     def update_voice_button(self):
         self.vbutton.configure(text='Hablar (hasta 12 s)' if self.natural_turn.get() else 'Hablar (6 s)')
-    def listen(self, wake=False, test_settings=None):
-        if self.listen_busy or self.speak_busy or self.ask_busy: return
-        if not wake and self.wake_enabled: return
+    def listen(self, wake=False, test_settings=None, follow=False):
+        if self.closed or self.listen_busy or self.speak_busy or self.ask_busy: return
+        if not wake and not follow and self.wake_enabled: return
+        if follow and not (self.wake_enabled and self.followup_on.get()):return
+        self.listening_followup=follow
         self.listen_busy=True; self.stop_voice.clear(); self.voice_epoch+=1; epoch=self.voice_epoch; self.vbutton.configure(state='disabled'); self.vstatus.set('Preparando micrófono…')
         testing=test_settings is not None
         selected=dict(test_settings if testing else self.speech_settings)
@@ -269,10 +282,12 @@ class App:
                     wake_options=dict(options)
                     if bare:wake_options['allow_bare']=True
                     text=voice.listen_wake(self.stop_voice,on_state=lambda state:self.results.put(('mic_state',epoch,state)),**wake_options)
+                elif follow:
+                    text=voice.listen(self.stop_voice,seconds=8,end_on_phrase=selected['model']!='Whisper small',on_ready=lambda:self.results.put(('mic_state',epoch,'Conversación activa · hablá ahora (hasta 8 s)')),**options)
                 elif natural: text=voice.listen(self.stop_voice,seconds=12,end_on_phrase=True,on_ready=lambda:self.results.put(('mic_state',epoch,'Micrófono activo: hablá y hacé una pausa al terminar (máx. 12 s).')),**options)
                 else: text=voice.listen(self.stop_voice,on_ready=lambda:self.results.put(('mic_state',epoch,'Micrófono activo: hablá ahora (6 segundos).')),**options)
-                self.results.put(('voice_test' if testing else 'voice',epoch,wake,text,None))
-            except Exception as e: self.results.put(('voice_test' if testing else 'voice',epoch,wake,'',str(e)))
+                self.results.put(('voice_test' if testing else ('voice_followup' if follow else 'voice'),epoch,wake,text,None))
+            except Exception as e: self.results.put(('voice_test' if testing else ('voice_followup' if follow else 'voice'),epoch,wake,'',str(e)))
         self.shutdown.start(work)
     def speak(self,text,settings=None):
         if self.closed or self.speak_busy or self.listen_busy: return
@@ -309,6 +324,7 @@ class App:
                     else: s.boxes=boxes; s.box_time=time.monotonic(); self.dstatus.set(', '.join(f'{name} ({conf:.0%})' for _,name,conf in boxes) or 'Sin objetos reconocidos')
             elif kind=='ask':
                 self.ask_busy=False; self.abutton.configure(state='normal'); slot,gen,text,error,request=r
+                follow_epoch=self.followup_request;self.followup_request=None
                 if request.epoch!=self.conversation.epoch: continue
                 source=request.source
                 if slot is not None and gen!=self.slots[slot].generation: self.write('Captura descartada: cambió o se apagó la cámara.'); continue
@@ -316,24 +332,37 @@ class App:
                 if not error:
                     self.core.accept(request,text,self.context_on.get())
                     if self.auto_speak.get(): self.pending_speech=text
+                    if self.wake_enabled and self.followup_on.get():self.followup.accepted(follow_epoch)
+                else:self.followup.reset()
             elif kind=='mic_state':
                 epoch,state=r
                 if epoch==self.voice_epoch and not self.stop_voice.is_set(): self.vstatus.set(state)
-            elif kind in ('voice','voice_test'):
-                self.listen_busy=False; self.vbutton.configure(state='normal'); epoch,wake,text,error=r
+            elif kind in ('voice','voice_test','voice_followup'):
+                self.listen_busy=False; self.listening_followup=False; self.vbutton.configure(state='normal'); epoch,wake,text,error=r
                 if epoch!=self.voice_epoch or self.stop_voice.is_set(): continue
                 if error:
-                    if wake: self.cancel_voice()
+                    if wake or kind=='voice_followup': self.cancel_voice()
                     self.vstatus.set('Error de voz: '+error)
                 elif text:
+                    if kind!='voice_test' and (wake or kind=='voice_followup') and stop_phrase(text):
+                        self.cancel_voice();self.vstatus.set('Conversación y micrófono desactivados.');continue
                     self.question.delete(0,'end'); self.question.insert(0,text); self.vstatus.set('Pregunta reconocida.')
                     if kind=='voice_test':self.vstatus.set('Prueba de micrófono: transcripción lista, sin consulta a IA.')
-                    elif wake or self.auto_ask.get(): self.ask()
-                else: self.vstatus.set('No se reconoció voz. Probá nuevamente.')
-            elif kind=='spoken': self.speak_busy=False; self.vstatus.set('Error de voz: '+r[0] if r[0] else 'Respuesta leída')
+                    elif wake or kind=='voice_followup':
+                        token=self.followup.initial() if wake and self.followup_on.get() else (self.followup.epoch if kind=='voice_followup' else None)
+                        if not self.ask(follow_epoch=token):self.followup.reset()
+                    elif self.auto_ask.get():self.ask()
+                else:
+                    if kind=='voice_followup':self.followup.reset()
+                    self.vstatus.set('No se reconoció voz. Probá nuevamente.')
+            elif kind=='spoken':
+                self.speak_busy=False; self.vstatus.set('Error de voz: '+r[0] if r[0] else 'Respuesta leída')
+                if r[0]:self.followup.reset()
         if self.pending_speech is not None and not (self.listen_busy or self.speak_busy):
             text=self.pending_speech; self.pending_speech=None; self.speak(text)
-        if self.wake_enabled and not (self.listen_busy or self.ask_busy or self.speak_busy): self.listen(wake=True)
+        if self.wake_enabled and not (self.listen_busy or self.ask_busy or self.speak_busy):
+            if self.followup_on.get() and self.followup.take():self.listen(follow=True)
+            else:self.listen(wake=True)
         s=self.active(); frame=s.frame(); now=time.monotonic()
         if self.detection_on and frame is not None and not self.detect_busy and now-self.last_detection>.65:
             self.detect_busy=True; self.last_detection=now; self.shutdown.start(self.detect,(frame.copy(),s.num,s.generation,self.detect_epoch))
@@ -343,7 +372,7 @@ class App:
             self.update_requested=True; self.close()
     def close(self):
         if self.closed:return
-        self.closed=True; self.wake_enabled=False; self.pending_speech=None; self.voice_epoch+=1
+        self.closed=True; self.wake_enabled=False; self.followup.reset();self.followup_request=None;self.pending_speech=None; self.voice_epoch+=1
         captures=[s.capture for s in self.slots if s.capture]
         self.shutdown.begin([self.stop_voice]+[c.stop for c in captures],[c.thread for c in captures],
                             exit_code=(UPDATE_EXIT if self.update_requested else 0) if self.exit_guard else None)

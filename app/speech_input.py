@@ -10,7 +10,9 @@ def normalize(raw):
     if not isinstance(device,dict) or type(device.get('index')) is not int or device['index']<0 or not isinstance(device.get('name'),str) or not isinstance(device.get('host'),str):
         device=None
     else:device={k:device[k] for k in ('index','name','host')}
-    return {'model':model if isinstance(model,str) and model in MANUAL_MODELS else 'Ligero','device':device}
+    result={'model':model if isinstance(model,str) and model in MANUAL_MODELS else 'Ligero','device':device}
+    if result['model']=='Whisper small' and raw.get('wake')=='Whisper experimental':result['wake']='Whisper experimental'
+    return result
 def load(path):
     try:return normalize(json.loads(Path(path).read_text(encoding='utf-8')))
     except (OSError,ValueError):return dict(DEFAULT)

@@ -49,4 +49,32 @@ class WhisperTests(unittest.TestCase):
         self.assertEqual(listen.call_args.args[0],self.base)
     def test_old_default_preserved(self):
         self.assertEqual(speech_input.normalize(None),speech_input.DEFAULT)
+    def test_wake_opt_in_is_explicit(self):
+        cfg={'model':'Whisper small','device':None}
+        self.assertNotIn('wake',speech_input.normalize(cfg))
+        self.assertEqual(speech_input.normalize(dict(cfg,wake='Whisper experimental'))['wake'],'Whisper experimental')
+        self.assertNotIn('wake',speech_input.normalize({'model':'Ligero','wake':'Whisper experimental'}))
+    def test_wake_dispatch(self):
+        with patch('whisper_input.listen_wake',return_value='consulta') as listen:
+            self.assertEqual(voice.listen_wake(self.stop,settings={'model':'Whisper small','wake':'Whisper experimental'},base=self.base),'consulta')
+        self.assertEqual(listen.call_args.args[0],self.base)
+    def test_segment_pre_roll_and_pause(self):
+        u=w.Utterance(16000);quiet=np.zeros(1600,dtype='<i2').tobytes();loud=np.full(1600,5000,dtype='<i2').tobytes()
+        for _ in range(5):self.assertFalse(u.feed(quiet))
+        for _ in range(3):self.assertFalse(u.feed(loud))
+        for _ in range(6):self.assertFalse(u.feed(quiet))
+        self.assertTrue(u.feed(quiet));self.assertEqual(len(u.finish()),13*len(quiet))
+    def test_segment_noise_rejected(self):
+        u=w.Utterance(16000);u.feed(np.full(1600,5000,dtype='<i2').tobytes())
+        self.assertEqual(u.finish(),b'')
+    def test_segment_bounded(self):
+        u=w.Utterance(16000);loud=np.full(1600,5000,dtype='<i2').tobytes()
+        for _ in range(59):self.assertFalse(u.feed(loud))
+        self.assertTrue(u.feed(loud));self.assertEqual(len(u.finish()),16000*6*2)
+    def test_whisper_wake_rejects_unrelated_transcript(self):
+        sd=Mock();sd.query_devices.return_value={'name':'mic','default_samplerate':16000}
+        with patch.dict(sys.modules,{'sounddevice':sd,'faster_whisper':Mock()}),patch('whisper_input.capture_utterance',return_value=self.pcm) as cap,patch('whisper_input.transcribe',side_effect=['qué hora es','Hola, Jarvis, qué hora es.']):
+            cfg={'model':'Whisper small','device':None,'wake':'Whisper experimental'}
+            self.assertEqual(w.listen_wake(self.base,cfg,self.stop),'qué hora es')
+        self.assertEqual(cap.call_count,2)
 if __name__=='__main__':unittest.main()

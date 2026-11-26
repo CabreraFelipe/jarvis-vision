@@ -136,6 +136,10 @@ class WakeCommand:
         return False
 
 def listen_wake(stop,on_state=None,*,allow_bare=False,settings=None,base=None):
+    selected=speech_input.normalize(settings)
+    if selected.get('wake')=='Whisper experimental':
+        import whisper_input
+        return whisper_input.listen_wake(base if base is not None else MODEL_DIR.parent.parent,selected,stop,on_state,allow_bare=allow_bare)
     global _model
     import sounddevice as sd
     from vosk import Model, KaldiRecognizer

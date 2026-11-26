@@ -40,3 +40,28 @@ with tempfile.TemporaryDirectory() as d, patch('camera.cv2.VideoCapture',FakeCap
     finally:
         sessions=[s.capture for s in app.slots if s.capture]; app.close()
         for s in sessions: s.thread.join(2)
+
+
+# Opt-in follow-up, speaker isolation and no reactivation after spoken stop.
+follow_calls=[];requests=[];spoken=[];recording.clear()
+def first_wake(stop,on_state):
+    follow_calls.append('wake')
+    return 'primera pregunta'
+def follow_listen(stop,**kwargs):
+    assert not app.speak_busy
+    recording.set();follow_calls.append('follow')
+    try:return 'segunda pregunta' if follow_calls.count('follow')==1 else 'terminar conversación'
+    finally:recording.clear()
+with tempfile.TemporaryDirectory() as d, patch('camera.cv2.VideoCapture',FakeCap), patch.object(j,'CONFIG',Path(d)/'config.json'), patch.object(j,'ask_vision',side_effect=answer), patch.object(j.voice,'listen_wake',side_effect=first_wake), patch.object(j.voice,'listen',side_effect=follow_listen), patch.object(j.voice,'speak',side_effect=speak):
+    root=tk.Tk();app=j.App(root,0)
+    try:
+        app.mode.set('Conversación sin cámara')
+        assert not app.followup_on.get()
+        app.followup_on.set(True);app.toggle_wake()
+        wait(root,lambda:not app.wake_enabled and follow_calls.count('follow')==2)
+        assert [r[1] for r in requests]==['primera pregunta','segunda pregunta']
+        assert follow_calls==['wake','follow','follow'] and len(spoken)==2
+        assert not app.listen_busy and not recording.is_set()
+        print('UI seguimiento: dos preguntas con una activación, voz sin escucha, parada local sin consulta OK')
+    finally:
+        app.close();assert app.shutdown.wait(2)

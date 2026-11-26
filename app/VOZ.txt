@@ -62,3 +62,11 @@ colocados en modelos/piper. Revisar licencia de cada voz. No descargar nada
 ni instalar automáticamente. Probar antes de guardar. El candidato usa un
 proceso por respuesta y no garantiza menor latencia. El gestor revisión 2
 contiene los procesos de la sesión cuando Windows permite asignarlos al job.
+
+
+CONVERSACIÓN DE SEGUIMIENTO (experimental, desactivada por defecto)
+Marcar Continuar conversación y activar Hola JARVIS. Tras respuesta válida, y al terminar la lectura, se abre una única escucha de hasta 8 segundos; usa el motor manual seleccionado. Hasta cinco turnos adicionales por activación; si no hay voz, vuelve a esperar la frase. Decir «terminar conversación», «deja de escuchar» o «cancelar micrófono» desactiva todo sin enviar ese comando a IA. Cancelar micrófono, borrar contexto o desmarcar seguimiento descarta continuidad. El micrófono se cierra antes de inferencia y reproducción; no hay escucha durante la respuesta ni interrupción acústica. Whisper sigue experimental y requiere modelo local. No es reconocimiento del hablante; usar en entorno privado. No se guarda audio.
+
+Las formas rioplatenses «Dejá de escuchar» y «Terminá la conversación» también se reconocen como órdenes locales exactas; no se envían a IA.
+
+Activación experimental Whisper: elegir Whisper small y marcar la casilla explícita en Herramientas > Micrófono y reconocimiento. Segmentación por energía (umbral inicial fijo), pausa de 700 ms y captura máxima de 6 s por segmento; el micrófono se cierra durante inferencia. Solo una frase de activación reconocida habilita una consulta, como en Vosk. No es detector acústico dedicado ni escucha sin interrupciones. Puede perder palabras mientras transcribe, consumir CPU y tener falsos positivos/negativos. Desmarcar para conservar Vosk. No se guarda audio.

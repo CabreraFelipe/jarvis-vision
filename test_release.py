@@ -4,6 +4,8 @@ from unittest.mock import patch
 from manager import Manager
 from build_release import build,ROOT
 class ReleaseTests(unittest.TestCase):
+    def setUp(self):
+        p=patch('manager.verify_artifact'); self.verify=p.start(); self.addCleanup(p.stop)
     def test_remote_flow(self):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d); pkg,feed=build('CabreraFelipe/jarvis-vision',root/'dist'); m=Manager(root/'user')
@@ -11,7 +13,7 @@ class ReleaseTests(unittest.TestCase):
             m.set_feed('https://github.com/CabreraFelipe/jarvis-vision/releases/latest/download/feed.json')
             with patch('manager.fetch',side_effect=[json.dumps(feed).encode(),pkg.read_bytes()]):
                 self.assertEqual(m.download(m.check()),feed['version'])
-            self.assertEqual(marker.read_text(),'preserve');self.assertEqual(m.verified(feed['version']).name,feed['version'])
+            self.assertEqual(self.verify.call_count,2);self.assertEqual(marker.read_text(),'preserve');self.assertEqual(m.verified(feed['version']).name,feed['version'])
             with patch('manager.fetch',return_value=json.dumps(feed).encode()):self.assertIsNone(m.check())
     def test_corrupt_download(self):
         with tempfile.TemporaryDirectory() as d:
@@ -45,6 +47,6 @@ class ReleaseTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d);pkg,feed=build('CabreraFelipe/jarvis-vision',root/'dist');m=Manager(root/'user');m.install(pkg)
             with patch('manager.fetch',return_value=b'corrupt'):
-                with self.assertRaises(ValueError):m.download(dict(feed,version='0.4.4'))
+                with self.assertRaises(ValueError):m.download(feed)
             self.assertEqual(m.state()['active'],feed['version']);m.verified(feed['version'])
 if __name__=='__main__':unittest.main()

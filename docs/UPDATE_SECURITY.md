@@ -15,3 +15,13 @@ El gestor local se instala en .jarvis/manager.py y solo instala los archivos app
 - No publicar V0.4.4 como actualizador autenticado hasta que el gestor local realmente aplique las comprobaciones antes de instalar.
 
 La publicación de código se automatiza, no el acceso a los datos personales ni la ejecución desatendida en el PC.
+
+## Candidato de verificación local
+
+Se incorpora un gestor candidato que verifica feed y ZIP con GitHub CLI instalado por separado, limita la identidad al repositorio y workflow oficiales, exige main y runner hospedado, y bloquea descargas si la autenticación falla. Se verifica también el ZIP elegido manualmente. El estado conserva la versión máxima observada para impedir retrocesos por metadatos antiguos; la restauración local explícita sigue disponible. No es TUF completo: no hay garantía de frescura temporal ni revocación independiente de GitHub. El CLI puede requerir autenticación y conectividad. No se instala ni modifica automáticamente el CLI.
+
+El gestor sigue sin automigrar: se añadirá como artefacto atestado independiente en las nuevas releases. La migración inicial requiere verificar ese archivo desde una instalación confiable de GitHub CLI antes de reemplazar el gestor local, con respaldo y prueba física. V0.4.3 no se reemplaza. Las pruebas de esta rama no prueban criptografía real en el PC; simulan resultados del verificador. La publicación V0.4.4 continúa bloqueada hasta completar la migración y los controles pertinentes.
+
+## Migración inicial y versión mínima del verificador
+
+Se exige gh >= 2.102.0 por GHSA-wjmr-j3rp-mh2g y GHSA-4mq3-hpgx-9cx8. El workflow se fija incluyendo @refs/heads/main. El gestor candidato implementa --migrate con ruta explícita a la instalación, bloqueo de instancia, verificación del gestor descargado, respaldo identificado por SHA-256 y reemplazo atómico. No altera datos ni estado. El bootstrap se publica como prerelease independiente y no cambia el canal latest. Verificar el archivo externamente con gh antes de ejecutarlo; la autoverificación no sustituye ese paso. La actualización automática del gestor futuro todavía no está implementada. La validación de hardware y migración real se mantiene pendiente.

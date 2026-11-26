@@ -1,6 +1,8 @@
 name: Validar y publicar JARVIS
 on:
   workflow_dispatch:
+  pull_request:
+    branches: [main]
   push:
     branches: [main]
     paths:
@@ -9,6 +11,7 @@ on:
       - 'manager.py'
       - 'build_release.py'
       - 'test_release.py'
+      - 'test_security.py'
       - '.github/workflows/release.yml'
 permissions:
   contents: read
@@ -36,7 +39,7 @@ jobs:
         working-directory: app
         run: python -m unittest test_jarvis test_v04 test_wake041
       - name: Pruebas del canal
-        run: python -m unittest test_release
+        run: python -m unittest test_release test_security
       - name: Interfaz simulada Linux
         if: runner.os == 'Linux'
         working-directory: app
@@ -51,7 +54,7 @@ jobs:
           python test_voice_ui.py
   release:
     needs: tests
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     permissions:
       contents: write
       id-token: write
@@ -63,7 +66,9 @@ jobs:
         with:
           python-version: '3.12'
       - name: Construir archivos
-        run: python build_release.py "$GITHUB_REPOSITORY" dist
+        run: |
+          python build_release.py "$GITHUB_REPOSITORY" dist
+          cp manager.py dist/manager.py
       - name: Atestar procedencia del ZIP y manifiesto
         uses: actions/attest@v4
         with:
@@ -73,9 +78,21 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -eu
+          python -c "import re, subprocess; m=re.match(r'gh version (\d+)\.(\d+)\.(\d+)(?:\s|$)',subprocess.check_output(['gh','--version'],text=True)); assert m and tuple(map(int,m.groups())) >= (2,102,0), 'GitHub CLI >=2.102.0 required'"
           for artifact in dist/*; do
-            gh attestation verify "$artifact" --repo "$GITHUB_REPOSITORY" --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release.yml" --deny-self-hosted-runners
+            gh attestation verify "$artifact" --repo "$GITHUB_REPOSITORY" --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release.yml@refs/heads/main" --source-ref refs/heads/main --deny-self-hosted-runners
           done
+      - name: Publicar bootstrap independiente (solo transición 0.4.3)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          if [ "$(cat VERSION)" = "0.4.3" ]; then
+            tags=$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq '.[].tag_name')
+            if ! printf '%s\n' "$tags" | grep -Fxq "updater-v2-bootstrap"; then
+              gh release create updater-v2-bootstrap dist/manager.py --target "$GITHUB_SHA" --prerelease --latest=false --title "JARVIS Secure Update Manager (bootstrap)" --notes "Migración inicial explícita. Verificar manager.py con GitHub CLI >= 2.102.0 antes de ejecutarlo. No modifica la release estable."
+            fi
+          fi
       - name: Crear release validada
         env:
           GH_TOKEN: ${{ github.token }}
@@ -87,4 +104,4 @@ jobs:
             echo "Version v$version already published; never overwrite an existing release."
             exit 0
           fi
-          gh release create "v$version" "dist/JARVIS_Vision_V$version.zip" dist/feed.json --target "$GITHUB_SHA" --title "JARVIS Vision V$version" --notes "Pruebas automatizadas Linux y Windows superadas. Dispositivos simulados. Instalación requiere confirmación local." --latest
+          gh release create "v$version" "dist/JARVIS_Vision_V$version.zip" dist/feed.json dist/manager.py --target "$GITHUB_SHA" --title "JARVIS Vision V$version" --notes "Pruebas automatizadas Linux y Windows superadas. Dispositivos simulados. Instalación requiere confirmación local." --latest

@@ -1,5 +1,7 @@
 """Explicit local preferences and memories; no automatic transcript storage."""
 import sqlite3
+import json
+from personality import DEFAULT as PERSONALITY_DEFAULT,validate as validate_personality
 import re
 import unicodedata
 from contextlib import contextmanager
@@ -36,6 +38,11 @@ class Memory:
                 con.execute('CREATE TABLE IF NOT EXISTS settings (id INTEGER PRIMARY KEY CHECK(id=1), enabled INTEGER NOT NULL, style TEXT NOT NULL)')
                 con.execute("INSERT OR IGNORE INTO settings VALUES (1,0,'Normal')")
                 con.execute('CREATE TABLE IF NOT EXISTS notes (id INTEGER PRIMARY KEY, text TEXT NOT NULL UNIQUE)')
+                con.execute('CREATE TABLE IF NOT EXISTS semantic_settings (id INTEGER PRIMARY KEY CHECK(id=1), enabled INTEGER NOT NULL)')
+                con.execute('INSERT OR IGNORE INTO semantic_settings VALUES (1,0)')
+                con.execute('CREATE TABLE IF NOT EXISTS learning_settings (id INTEGER PRIMARY KEY CHECK(id=1), enabled INTEGER NOT NULL)')
+                con.execute('INSERT OR IGNORE INTO learning_settings VALUES (1,0)')
+                con.execute('CREATE TABLE IF NOT EXISTS personality_settings (id INTEGER PRIMARY KEY CHECK(id=1), profile TEXT NOT NULL)')
                 yield con
         finally:
             con.close()
@@ -44,10 +51,36 @@ class Memory:
         with self.db() as con:
             enabled,style=con.execute('SELECT enabled,style FROM settings WHERE id=1').fetchone()
             return bool(enabled),style if style in STYLES else 'Normal'
-    def configure(self,enabled,style):
+    def semantic_enabled(self):
+        if not self.path.exists(): return False
+        with self.db() as con: return bool(con.execute('SELECT enabled FROM semantic_settings WHERE id=1').fetchone()[0])
+    def personality(self):
+        if not self.path.exists():return PERSONALITY_DEFAULT
+        with self.db() as con:
+            row=con.execute('SELECT profile FROM personality_settings WHERE id=1').fetchone()
+        if row is None:return PERSONALITY_DEFAULT
+        try:return validate_personality(json.loads(row[0]))
+        except (ValueError,TypeError):return PERSONALITY_DEFAULT
+    def set_personality(self,profile):
+        profile=validate_personality(profile)
+        with self.db() as con:
+            con.execute('INSERT INTO personality_settings VALUES (1,?) ON CONFLICT(id) DO UPDATE SET profile=excluded.profile',(json.dumps(profile,ensure_ascii=False),))
+    def suggestions_enabled(self):
+        if not self.path.exists(): return False
+        with self.db() as con:
+            enabled=con.execute('SELECT enabled FROM settings WHERE id=1').fetchone()[0]
+            learning=con.execute('SELECT enabled FROM learning_settings WHERE id=1').fetchone()[0]
+            return bool(enabled and learning)
+    def configure(self,enabled,style,semantic=None,*,suggestions=None):
         if style not in STYLES: raise ValueError('Estilo inválido.')
         with self.db() as con:
             con.execute('UPDATE settings SET enabled=?,style=? WHERE id=1',(int(bool(enabled)),style))
+            if semantic is not None:
+                con.execute('UPDATE semantic_settings SET enabled=? WHERE id=1',(int(bool(semantic) and bool(enabled)),))
+            elif not enabled:
+                con.execute('UPDATE semantic_settings SET enabled=0 WHERE id=1')
+            if suggestions is not None or not enabled:
+                con.execute('UPDATE learning_settings SET enabled=? WHERE id=1',(int(bool(suggestions) and bool(enabled)),))
     def add(self,text):
         text=text.strip()
         if not text or len(text)>MAX_NOTE: raise ValueError('Escribí una nota de 1 a 300 caracteres.')
@@ -78,15 +111,20 @@ class Memory:
     def clear(self):
         if not self.path.exists(): return
         with self.db() as con: con.execute('DELETE FROM notes')
-    def snapshot(self,question=None):
-        if not self.path.exists(): return 'Normal',()
+    def selection(self,question=None,use_context=True):
+        """Read one local snapshot; no embedding work or network on the UI thread."""
+        if not self.path.exists(): return 'Normal',(),()
         with self.db() as con:
             enabled,style=con.execute('SELECT enabled,style FROM settings WHERE id=1').fetchone()
-            notes=[]; total=0
-            if enabled:
-                rows=con.execute('SELECT id,text FROM notes ORDER BY id DESC').fetchall()
-                if question is not None: rows=relevant(rows,question)
-                for _,text in rows:
-                    if total+len(text)>MAX_CONTEXT: continue
-                    notes.append(text); total+=len(text)
-            return style if style in STYLES else 'Normal',tuple(notes)
+            semantic=con.execute('SELECT enabled FROM semantic_settings WHERE id=1').fetchone()[0]
+            rows=con.execute('SELECT id,text FROM notes ORDER BY id DESC').fetchall() if enabled and use_context else []
+            lexical=rows if question is None else relevant(rows,question)
+            candidates=tuple(rows) if semantic and question is not None else ()
+            notes=[];total=0
+            for _,text in lexical:
+                if total+len(text)>MAX_CONTEXT: continue
+                notes.append(text);total+=len(text)
+            return style if style in STYLES else 'Normal',tuple(notes),candidates
+    def snapshot(self,question=None):
+        style,notes,_=self.selection(question)
+        return style,notes

@@ -2,9 +2,10 @@
 from dataclasses import dataclass
 from typing import Any, Protocol
 from conversation import Conversation
+from personality import DEFAULT as PERSONALITY_DEFAULT,validate as validate_personality
 
 class ChatProvider(Protocol):
-    def __call__(self, frame: Any, question: str, history: list[dict], *, style: str = 'Normal', memories: tuple[str, ...] = ()) -> str: ...
+    def __call__(self, frame: Any, question: str, history: list[dict], *, style: str = 'Normal', memories: tuple[str, ...] = (), personality: tuple[str, ...] = PERSONALITY_DEFAULT) -> str: ...
 
 @dataclass(frozen=True)
 class Request:
@@ -16,13 +17,14 @@ class Request:
     history: tuple[tuple[str, str], ...]
     style: str = 'Normal'
     memories: tuple[str, ...] = ()
+    personality: tuple[str, ...] = PERSONALITY_DEFAULT
 
 class AssistantCore:
     def __init__(self, provider: ChatProvider, turns: int = 4):
         self.provider = provider
         self.conversation = Conversation(turns)
 
-    def prepare(self, question, source, frame=None, use_context=True, style='Normal', memories=()):
+    def prepare(self, question, source, frame=None, use_context=True, style='Normal', memories=(), personality=PERSONALITY_DEFAULT):
         """Call from UI thread: snapshot the context and frame for a worker."""
         question = question.strip()
         if not question:
@@ -30,11 +32,13 @@ class AssistantCore:
         messages = self.conversation.snapshot() if use_context else []
         return Request(question, source, self.conversation.epoch, bool(use_context),
                        frame.copy() if frame is not None else None,
-                       tuple((m['role'], m['content']) for m in messages), style, tuple(memories) if use_context else ())
+                       tuple((m['role'], m['content']) for m in messages), style, tuple(memories) if use_context else (),validate_personality(personality))
 
     def answer(self, request):
         """Call from worker. Only explicit request data reaches the provider."""
         history = [{'role': role, 'content': content} for role, content in request.history]
+        if request.personality!=PERSONALITY_DEFAULT:
+            return self.provider(request.frame,request.question,history,style=request.style,memories=request.memories,personality=request.personality)
         if request.style != 'Normal' or request.memories:
             return self.provider(request.frame, request.question, history, style=request.style, memories=request.memories)
         return self.provider(request.frame, request.question, history)

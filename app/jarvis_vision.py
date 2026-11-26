@@ -10,7 +10,7 @@ import tkinter as tk
 from tkinter import ttk,messagebox
 import cv2
 from PIL import Image,ImageTk
-from camera import Capture, MODES, FORMATS, FPS, load_config, save_config
+from camera import Capture, MODES, FORMATS, FPS, BACKENDS, load_config, save_config
 from vision import ask_vision
 import voice
 from assistant_core import AssistantCore
@@ -24,27 +24,34 @@ UPDATE_EXIT=42
 BASE=Path(os.environ.get("JARVIS_DATA_DIR",str(Path(__file__).resolve().parent))).resolve()
 CONFIG=BASE/'camera_config.json'
 
+def preview_frame(frame,width,height):
+    h,w=frame.shape[:2]; scale=min(1.,max(1,width)/w,max(1,height)/h)
+    if scale>=1.: return frame,1.
+    return cv2.resize(frame,(max(1,int(w*scale)),max(1,int(h*scale))),interpolation=cv2.INTER_AREA),scale
+
 class Slot:
     def __init__(self,app,parent,num,config):
-        self.app=app; self.num=num; self.config=config; self.capture=None; self.pending=None; self.fallback=None; self.generation=0; self.saved=False; self.boxes=[]; self.box_time=0.; self.photo=None
+        self.app=app; self.num=num; self.config=config; self.capture=None; self.pending=None; self.fallback=None; self.generation=0; self.saved=False; self.boxes=[]; self.box_time=0.; self.photo=None; self.last_render=None; self.preview_fps=0.; self.render_count=0; self.render_start=time.monotonic(); self.last_status=0.
         self.panel=ttk.LabelFrame(parent,text=f'Cámara {num+1}',padding=6)
-        self.index=tk.StringVar(value=str(config['index'])); self.res=tk.StringVar(value=config['resolution']); self.fmt=tk.StringVar(value=config['format']); self.fps=tk.StringVar(value=str(config['fps'])); self.status=tk.StringVar(value='Desactivada')
-        self.panel.columnconfigure(0,weight=1); self.panel.rowconfigure(3,weight=1)
+        self.index=tk.StringVar(value=str(config['index'])); self.res=tk.StringVar(value=config['resolution']); self.fmt=tk.StringVar(value=config['format']); self.fps=tk.StringVar(value=str(config['fps'])); self.status=tk.StringVar(value='Desactivada'); self.backend=tk.StringVar(value=config.get('backend','Automático'))
+        self.panel.columnconfigure(0,weight=1); self.panel.rowconfigure(4,weight=1)
         row=ttk.Frame(self.panel); row.grid(row=0,column=0,sticky='ew');
         ttk.Label(row,text='Índice').pack(side='left'); cb=ttk.Combobox(row,textvariable=self.index,values=list(range(32)),width=4,state='readonly'); cb.pack(side='left',padx=3); cb.bind('<<ComboboxSelected>>',self.select_profile)
         ttk.Label(row,text='Resolución').pack(side='left'); ttk.Combobox(row,textvariable=self.res,values=list(MODES),width=14,state='readonly').pack(side='left',padx=3)
         row2=ttk.Frame(self.panel); row2.grid(row=1,column=0,sticky='ew',pady=4)
         ttk.Combobox(row2,textvariable=self.fmt,values=FORMATS,width=11,state='readonly').pack(side='left'); ttk.Combobox(row2,textvariable=self.fps,values=FPS,width=4,state='readonly').pack(side='left',padx=3); ttk.Label(row2,text='FPS').pack(side='left')
         ttk.Button(row2,text='Conectar',command=self.connect).pack(side='left',padx=4); ttk.Button(row2,text='Apagar',command=self.disable).pack(side='left')
-        ttk.Label(self.panel,textvariable=self.status,wraplength=310).grid(row=2,column=0,sticky='ew',pady=4)
-        self.preview=tk.Label(self.panel,bg='#14191f',text='Cámara apagada',fg='white'); self.preview.grid(row=3,column=0,sticky='nsew')
+        row3=ttk.Frame(self.panel); row3.grid(row=2,column=0,sticky='ew')
+        ttk.Label(row3,text='Controlador').pack(side='left'); ttk.Combobox(row3,textvariable=self.backend,values=BACKENDS,state='readonly',width=18).pack(side='left',padx=3)
+        ttk.Label(self.panel,textvariable=self.status,wraplength=310).grid(row=3,column=0,sticky='ew',pady=4)
+        self.preview=tk.Label(self.panel,bg='#14191f',text='Cámara apagada',fg='white'); self.preview.grid(row=4,column=0,sticky='nsew')
     def select_profile(self,event=None):
         p=self.app.profiles.get(self.index.get())
-        if p: self.res.set(p['resolution']); self.fmt.set(p['format']); self.fps.set(str(p['fps']))
+        if p: self.res.set(p['resolution']); self.fmt.set(p['format']); self.fps.set(str(p['fps'])); self.backend.set(p.get('backend','Automático'))
     def set_controls(self,p):
-        self.index.set(str(p['index'])); self.res.set(p['resolution']); self.fmt.set(p['format']); self.fps.set(str(p['fps']))
+        self.index.set(str(p['index'])); self.res.set(p['resolution']); self.fmt.set(p['format']); self.fps.set(str(p['fps'])); self.backend.set(p.get('backend','Automático'))
     def connect(self):
-        target=dict(index=int(self.index.get()),resolution=self.res.get(),format=self.fmt.get(),fps=int(self.fps.get()))
+        target=dict(index=int(self.index.get()),resolution=self.res.get(),format=self.fmt.get(),fps=int(self.fps.get()),backend=self.backend.get())
         if self.app.in_use(self,target['index']):
             messagebox.showwarning('Cámara','Ese índice está siendo utilizado por la otra cámara. Apagala primero o elegí otro índice.'); return
         self.fallback=dict(self.config) if self.capture and self.capture.snapshot()[5] and target!=self.config else None
@@ -54,7 +61,7 @@ class Slot:
         if self.capture: self.capture.stop.set()
         self.status.set('Cerrando conexión anterior…' if self.capture else ('Conectando…' if target else 'Desactivada'))
     def clear(self,text):
-        self.photo=None; self.preview.configure(image='',text=text)
+        self.photo=None; self.last_render=None; self.preview_fps=0.; self.render_count=0; self.render_start=time.monotonic(); self.last_status=0.; self.preview.configure(image='',text=text)
     def disable(self):
         self.fallback=None; self.request(None)
     def frame(self):
@@ -79,16 +86,32 @@ class Slot:
         if not ready or frame is None: self.status.set(status); return
         if not self.saved:
             self.saved=True; self.fallback=None; self.app.profiles[str(self.config['index'])]=dict(self.config); self.app.persist()
-        h,w=frame.shape[:2]
-        self.status.set(f'{w} × {h} efectivos | {fps:.1f} FPS medidos | {fmt}\nSolicitado: {self.config["resolution"]}, {self.config["fps"]} FPS' + (' | señal demorada' if time.monotonic()-stamp>=2 else ''))
-        if time.monotonic()-stamp>=2: self.clear('Esperando imagen…'); return
-        display=frame.copy()
-        if self.app.detection_on and time.monotonic()-self.box_time<1.2:
+        now=time.monotonic(); h,w=frame.shape[:2]
+        stale=now-stamp>=2
+        if now-self.last_status>=.25 or self.last_render is None:
+            self.last_status=now
+            self.status.set(f'{w} × {h} efectivos | {fps:.1f} FPS captura | {fmt} ({self.capture.backend})\nVista: {self.preview_fps:.1f} FPS | Solicitado: {self.config["fps"]} FPS' + (' | señal demorada' if stale else ''))
+        if stale:
+            if self.photo is not None: self.clear('Esperando imagen…')
+            return
+        width=max(1,self.preview.winfo_width()); height=max(1,self.preview.winfo_height())
+        overlays=self.app.detection_on and now-self.box_time<1.2
+        key=(stamp,width,height,self.box_time if overlays else 0)
+        if key==self.last_render: return
+        display,scale=preview_frame(frame,width,height)
+        if overlays:
+            if display is frame: display=frame.copy()
             for (x1,y1,x2,y2),name,conf in self.boxes:
+                x1,y1,x2,y2=(int(v*scale) for v in (x1,y1,x2,y2))
                 cv2.rectangle(display,(x1,y1),(x2,y2),(90,220,90),2)
                 cv2.putText(display,f'{name} {conf:.0%}',(x1,max(15,y1-5)),cv2.FONT_HERSHEY_SIMPLEX,.5,(90,220,90),2)
-        im=Image.fromarray(cv2.cvtColor(display,cv2.COLOR_BGR2RGB)); im.thumbnail((max(1,self.preview.winfo_width()),max(1,self.preview.winfo_height())))
+        im=Image.fromarray(cv2.cvtColor(display,cv2.COLOR_BGR2RGB))
         self.photo=ImageTk.PhotoImage(im); self.preview.configure(image=self.photo,text='')
+        self.last_render=key; self.render_count+=1
+        if now-self.render_start>=1.:
+            self.preview_fps=self.render_count/(now-self.render_start)
+            self.render_count=0; self.render_start=now
+
 
 class App:
     def __init__(self,root,index=None):
@@ -130,7 +153,7 @@ class App:
         self.auto_speak=tk.BooleanVar(value=False); ttk.Checkbutton(side,text='Leer respuestas en voz alta',variable=self.auto_speak).pack(anchor='w'); self.vstatus=tk.StringVar(value='Voz opcional · sin escucha permanente'); ttk.Label(side,textvariable=self.vstatus,wraplength=290).pack(fill='x',pady=4)
         ttk.Label(side,text='Ollama local · imágenes solo a pedido. Voz continua solo si la activás.',wraplength=290).pack(fill='x')
         self.answer=tk.Text(side,wrap='word',height=8,width=30,font=('Segoe UI',10)); self.answer.pack(fill='both',expand=True); self.write('Conectá una cámara. Para preguntas instalá Ollama y gemma3:4b. Para voz, ver VOZ.txt.')
-        self.slots[0].connect(); self.root.after(40,self.tick)
+        self.slots[0].connect(); self.root.after(15,self.tick)
     def show_diagnostics(self):
         if self.diagnostics_window is not None and self.diagnostics_window.winfo_exists():
             self.diagnostics_window.lift(); return
@@ -273,7 +296,7 @@ class App:
         s=self.active(); frame=s.frame(); now=time.monotonic()
         if self.detection_on and frame is not None and not self.detect_busy and now-self.last_detection>.65:
             self.detect_busy=True; self.last_detection=now; threading.Thread(target=self.detect,args=(frame.copy(),s.num,s.generation,self.detect_epoch),daemon=True).start()
-        self.root.after(40,self.tick)
+        self.root.after(15,self.tick)
     def open_updates(self):
         if messagebox.askyesno('Actualizaciones','Se cerrará la sesión actual para abrir el gestor. Las preferencias y archivos locales se conservarán. ¿Continuar?'):
             self.update_requested=True; self.close()

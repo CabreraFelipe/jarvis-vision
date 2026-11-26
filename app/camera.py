@@ -5,16 +5,18 @@ import time
 from pathlib import Path
 import cv2
 
-MODES = {'Automática': None, '1920x1080': (1920,1080), '1280x720': (1280,720), '640x480': (640,480), 'Predeterminada': None}
+MODES = {'Automática': None, 'Auto fluidez': None, 'Auto calidad': None, '1920x1080': (1920,1080), '1280x720': (1280,720), '640x480': (640,480), 'Predeterminada': None}
 FORMATS = ('Automático','MJPG','YUY2')
 FPS = (15,30,60)
+BACKENDS=('Automático','DirectShow','Media Foundation')
+AUTO_MODES=('Automática','Auto fluidez','Auto calidad')
 
 def normalize(raw, default=0):
     raw = raw if isinstance(raw,dict) else {}
     index = raw.get('index',default)
     if type(index) is not int or not 0 <= index <= 31: index=default
     res=raw.get('resolution','Automática'); fmt=raw.get('format','Automático'); fps=raw.get('fps',30)
-    return dict(index=index, resolution=res if isinstance(res,str) and res in MODES else 'Automática', format=fmt if fmt in FORMATS else 'Automático', fps=fps if type(fps) is int and fps in FPS else 30)
+    return dict(index=index, resolution=res if isinstance(res,str) and res in MODES else 'Automática', format=fmt if fmt in FORMATS else 'Automático', fps=fps if type(fps) is int and fps in FPS else 30, backend=raw.get('backend') if raw.get('backend') in BACKENDS else 'Automático')
 
 def load_config(path):
     try:
@@ -35,59 +37,80 @@ def save_config(path,a,b,profiles):
     path=Path(path); tmp=path.with_suffix('.tmp')
     tmp.write_text(json.dumps({'camera':a['index'],'primary':a,'secondary':b,'profiles':profiles},indent=2,ensure_ascii=False),encoding='utf-8'); tmp.replace(path)
 
-def try_mode(cap, mode, fps, fmt):
+def try_mode(cap, mode, fps, fmt, stop=None):
     if fmt!='Automático': cap.set(cv2.CAP_PROP_FOURCC,cv2.VideoWriter_fourcc(*fmt))
     if mode:
         cap.set(cv2.CAP_PROP_FRAME_WIDTH,mode[0]); cap.set(cv2.CAP_PROP_FRAME_HEIGHT,mode[1])
     cap.set(cv2.CAP_PROP_FPS,fps)
     frame=None
     for _ in range(3):
+        if stop is not None and stop.is_set(): return None
         ok,img=cap.read()
         if ok and img is not None and img.size: frame=img
     return frame
 
+def measure_capture(cap,frame,stop=None,window=.4,max_reads=16):
+    start=time.monotonic(); count=0
+    for _ in range(max_reads):
+        if stop is not None and stop.is_set(): break
+        ok,img=cap.read()
+        if ok and img is not None and img.size: frame=img; count+=1
+        if time.monotonic()-start>=window: break
+    return frame,count/max(time.monotonic()-start,1e-6)
+
+def mode_score(frame,rate,target,profile):
+    h,w=frame.shape[:2]; pixels=w*h; capped=min(rate,target)
+    if profile=='Auto calidad': return (pixels,capped)
+    if profile=='Auto fluidez': return (rate>=target*.85,capped,pixels)
+    return (rate>=target*.85,pixels if rate>=target*.85 else capped,capped if rate>=target*.85 else pixels)
+
 def open_camera(config, stop=None):
-    """Auto searches common modes, preferring actual pixel count. Explicit mode reports real result."""
-    index=config['index']; auto=config['resolution']=='Automática'; explicit=MODES[config['resolution']]
-    # Try MJPG first in automatic mode for USB bandwidth, then driver defaults.
-    formats=['MJPG','Automático'] if config['format']=='Automático' and auto else [config['format']]
-    modes=[(1920,1080),(1280,720),(640,480),None] if auto else [explicit]
+    """Probe selected index sequentially; choose based on actual successful reads."""
+    index=config['index']; profile=config['resolution']; auto=profile in AUTO_MODES
+    explicit=MODES[profile]; fps=config['fps']
+    formats=['MJPG','Automático'] if config['format']=='Automático' else [config['format']]
+    modes=([(1280,720),(640,480),(1920,1080),None] if profile=='Auto fluidez' else
+           [(1920,1080),(1280,720),(640,480),None]) if auto else [explicit]
+    drivers={'DirectShow':[cv2.CAP_DSHOW],'Media Foundation':[cv2.CAP_MSMF]}.get(config.get('backend'),[cv2.CAP_DSHOW,cv2.CAP_MSMF])
     best=None
     def cancelled(): return stop is not None and stop.is_set()
-    def attempt(backend,mode,fmt):
-        cap=cv2.VideoCapture(index,backend)
-        keep=False
+    def attempt(backend,mode,fmt,probe=True):
+        cap=cv2.VideoCapture(index,backend); keep=False
         try:
-            if not cap.isOpened(): return None
-            frame=try_mode(cap,mode,config['fps'],fmt)
-            if frame is None: return None
-            keep=True; return cap,frame
+            if not cap.isOpened() or cancelled(): return None
+            frame=try_mode(cap,mode,fps,fmt,stop)
+            if frame is None or cancelled(): return None
+            rate=0.
+            if probe: frame,rate=measure_capture(cap,frame,stop)
+            if cancelled() or (probe and rate<=0): return None
+            keep=True; return cap,frame,rate
         finally:
             if not keep: cap.release()
-    # Most typical cameras succeed on first or second attempt. Do not probe other indices.
-    for backend in (cv2.CAP_DSHOW,cv2.CAP_MSMF):
-        for mode in modes:
+    for mode in modes:
+        for backend in drivers:
             for fmt in formats:
                 if cancelled(): raise RuntimeError('Captura cancelada')
                 result=attempt(backend,mode,fmt)
                 if result is None: continue
-                cap,frame=result; h,w=frame.shape[:2]
-                if not auto or (w>=1920 and h>=1080): return cap,frame
-                score=w*h
-                if best is None or score>best[0]: best=(score,backend,mode,fmt)
+                cap,frame,rate=result; h,w=frame.shape[:2]
+                adequate=rate>=fps*.85
+                requested=mode is None or (w>=mode[0] and h>=mode[1])
+                score=mode_score(frame,rate,fps,profile) if auto else (requested,min(rate,fps),w*h)
+                candidate=(score,backend,mode,fmt)
+                if best is None or score>best[0]: best=candidate
+                if adequate and requested and (profile!='Auto calidad' or mode==(1920,1080)):
+                    # An earlier fallback may already have delivered higher resolution.
+                    if best==candidate: return cap,frame
                 cap.release()
-            # If both 1080 and 720 have been tried and HD was delivered, don't search lower modes.
-            if mode==(1280,720) and best and best[0]>=1280*720: break
-        if best: break  # retain working backend, avoid disrupting other camera
     if best and not cancelled():
-        _,backend,mode,fmt=best; result=attempt(backend,mode,fmt)
-        if result is not None: return result
-    raise RuntimeError('No se pudo abrir la cámara con estos ajustes. Cerrá Zoom u otras apps; probá Predeterminada / Automático.')
+        _,backend,mode,fmt=best; result=attempt(backend,mode,fmt,probe=False)
+        if result is not None: return result[0],result[1]
+    raise RuntimeError('Captura cancelada' if cancelled() else 'No se pudo abrir la cámara. Probá Predeterminada / Automático u otro controlador.')
 
 class Capture:
     def __init__(self,config):
         self.config=dict(config); self.stop=threading.Event(); self.lock=threading.Lock()
-        self.frame=None; self.stamp=0.; self.fps=0.; self.status='Conectando…'; self.format=''; self.ready=False
+        self.frame=None; self.stamp=0.; self.fps=0.; self.status='Midiendo modos de captura…'; self.format=''; self.backend='No informado'; self.ready=False
         self.thread=threading.Thread(target=self.run,daemon=True); self.thread.start()
     def snapshot(self):
         with self.lock: return self.frame,self.stamp,self.fps,self.status,self.format,self.ready
@@ -95,6 +118,9 @@ class Capture:
         cap=None
         try:
             cap,frame=open_camera(self.config,self.stop)
+            try: backend=cap.getBackendName()
+            except (AttributeError,cv2.error): backend='No informado'
+            with self.lock: self.backend=backend
             try: fourcc=int(cap.get(cv2.CAP_PROP_FOURCC))
             except (ValueError,TypeError,OverflowError): fourcc=0
             fmt=''.join(chr((fourcc >> (8*i)) & 255) for i in range(4)); fmt=fmt if fmt.isprintable() else 'No informado'

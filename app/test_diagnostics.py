@@ -3,7 +3,7 @@ from pathlib import Path
 from unittest.mock import patch,Mock
 from memory import Memory
 from assistant_core import AssistantCore
-from diagnostics import ollama_status,collect
+from diagnostics import ollama_status,collect,runtime_rows,voice_install_commands
 
 class SelectiveMemoryTests(unittest.TestCase):
     def setUp(self):
@@ -45,6 +45,28 @@ class DiagnosticsTests(unittest.TestCase):
         opener=Mock(); opener.open.return_value=io.BytesIO(b'{"models":[]}')
         with patch('diagnostics.urllib.request.build_opener',return_value=opener):
             self.assertEqual(ollama_status(),('Disponible','No encontrado'))
+    def test_commands_use_exact_interpreter_and_binary_only(self):
+        commands=dict(voice_install_commands("C:/Users/O'Brien/JARVIS/Scripts/pythonw.exe"))
+        self.assertIn("O''Brien",commands['Whisper'])
+        self.assertIn("python.exe' -I -m pip install --only-binary=:all: faster-whisper scipy",commands['Whisper'])
+        self.assertIn("--only-binary=:all:",commands['Piper'])
+        self.assertNotIn('--user',commands['Whisper'])
+        self.assertTrue(commands['Verificar dependencias'].endswith('-m pip check'))
+    def test_runtime_model_indicators(self):
+        with tempfile.TemporaryDirectory() as d:
+            base=Path(d)
+            rows=dict(runtime_rows(base))
+            self.assertEqual(rows['Modelo Whisper small'],'Faltan archivos')
+            self.assertEqual(rows['Modelos Piper'],'0 pares ONNX + JSON presentes')
+            whisper=base/'modelos'/'faster-whisper-small';whisper.mkdir(parents=True)
+            for name in ('model.bin','config.json','tokenizer.json'):(whisper/name).touch()
+            piper=base/'modelos'/'piper';piper.mkdir()
+            (piper/'test.onnx').touch()
+            self.assertEqual(dict(runtime_rows(base))['Modelos Piper'],'0 pares ONNX + JSON presentes')
+            (piper/'test.onnx.json').touch()
+            rows=dict(runtime_rows(base))
+            self.assertEqual(rows['Modelo Whisper small'],'Archivos mínimos presentes')
+            self.assertEqual(rows['Modelos Piper'],'1 pares ONNX + JSON presentes')
     def test_collect_no_creation(self):
         with tempfile.TemporaryDirectory() as d,patch('diagnostics.ollama_status',return_value=('Disponible','Instalado')):
             rows=dict(collect(d,'0.4.4'))

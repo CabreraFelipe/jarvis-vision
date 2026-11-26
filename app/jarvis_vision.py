@@ -16,6 +16,7 @@ import voice
 from assistant_core import AssistantCore
 from memory import Memory
 from memory_ui import open_memory
+from windows_launcher import create_shortcut
 
 VERSION='0.4.4'
 UPDATE_EXIT=42
@@ -100,6 +101,10 @@ class App:
         top=ttk.Frame(root,padding=12); top.pack(fill='x'); ttk.Label(top,text='JARVIS Vision  /  V'+VERSION,font=('Segoe UI',18,'bold')).pack(side='left'); ttk.Label(top,text='Procesamiento local · Micrófono opcional').pack(side='right'); self.update_requested=False
         if os.environ.get('JARVIS_MANAGED')=='1': ttk.Button(top,text='Actualizaciones',command=self.open_updates).pack(side='right',padx=10)
         ttk.Button(top,text='Memoria y personalidad',command=self.show_memory).pack(side='right',padx=6)
+        if os.name=='nt' and os.environ.get('JARVIS_MANAGED')=='1':
+            menu=tk.Menu(root); tools=tk.Menu(menu,tearoff=False)
+            tools.add_command(label='Crear acceso directo de JARVIS',command=self.make_shortcut)
+            menu.add_cascade(label='Herramientas',menu=tools); root.configure(menu=menu)
         main=ttk.Frame(root,padding=(12,0,12,12)); main.pack(fill='both',expand=True)
         main.columnconfigure(0,weight=1,uniform='camera'); main.columnconfigure(1,weight=1,uniform='camera'); main.columnconfigure(2,weight=1); main.rowconfigure(0,weight=1)
         self.slots=[Slot(self,main,0,a),Slot(self,main,1,b)]
@@ -120,6 +125,12 @@ class App:
         ttk.Label(side,text='Ollama local · imágenes solo a pedido. Voz continua solo si la activás.',wraplength=290).pack(fill='x')
         self.answer=tk.Text(side,wrap='word',height=8,width=30,font=('Segoe UI',10)); self.answer.pack(fill='both',expand=True); self.write('Conectá una cámara. Para preguntas instalá Ollama y gemma3:4b. Para voz, ver VOZ.txt.')
         self.slots[0].connect(); self.root.after(40,self.tick)
+    def make_shortcut(self):
+        if not messagebox.askyesno('Acceso directo','¿Crear o reemplazar el acceso directo JARVIS en el escritorio? Mantendrá el gestor de actualizaciones.',parent=self.root): return
+        try:
+            create_shortcut(BASE)
+            messagebox.showinfo('Acceso directo','Acceso directo JARVIS creado. Usalo para abrir la aplicación sin una consola permanente.',parent=self.root)
+        except Exception as e: messagebox.showerror('Acceso directo',str(e),parent=self.root)
     def show_memory(self):
         if self.memory_window is not None and self.memory_window.winfo_exists():
             self.memory_window.lift(); return

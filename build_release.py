@@ -2,7 +2,7 @@
 import hashlib,json,re,sys,zipfile
 from pathlib import Path
 ROOT=Path(__file__).resolve().parent
-FILES='jarvis_vision.py assistant_core.py test_core.py memory.py memory_ui.py test_memory.py camera.py voice.py conversation.py vision.py requirements.txt requirements-voice.txt INICIAR.bat INSTALAR.bat INSTALAR_VOZ.bat LEEME.txt PRUEBAS.txt VOZ.txt test_jarvis.py test_ui.py test_v04.py test_voice_ui.py test_wake041.py'.split()
+FILES='jarvis_vision.py assistant_core.py test_core.py memory.py memory_ui.py test_memory.py windows_launcher.py test_launcher.py camera.py voice.py conversation.py vision.py requirements.txt requirements-voice.txt INICIAR.bat INSTALAR.bat INSTALAR_VOZ.bat LEEME.txt PRUEBAS.txt VOZ.txt test_jarvis.py test_ui.py test_v04.py test_voice_ui.py test_wake041.py'.split()
 def build(repo,out):
     if not re.fullmatch(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+',repo): raise ValueError('Invalid repository')
     v=(ROOT/'VERSION').read_text().strip()

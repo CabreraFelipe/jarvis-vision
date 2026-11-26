@@ -36,6 +36,9 @@ def atomic_json(path,data):
 def read_json(path): return json.loads(path.read_text(encoding='utf-8'))
 def digest(data): return hashlib.sha256(data).hexdigest()
 
+def quiet_process_options():
+    return {'creationflags':subprocess.CREATE_NO_WINDOW} if os.name=='nt' else {}
+
 def verify_artifact(path):
     """Use a separately installed trusted GitHub CLI. Failure never permits installation."""
     cwd=Path.cwd().resolve()
@@ -47,7 +50,7 @@ def verify_artifact(path):
     env.update(GH_HOST='github.com', GH_PROMPT_DISABLED='1', GH_NO_UPDATE_NOTIFIER='1')
     binary=str(Path(gh).resolve())
     try:
-        info=subprocess.run([binary,'--version'],env=env,capture_output=True,timeout=10,check=False)
+        info=subprocess.run([binary,'--version'],env=env,capture_output=True,timeout=10,check=False,**quiet_process_options())
     except (OSError,subprocess.TimeoutExpired) as e:
         raise ValueError('No se pudo verificar la versión de GitHub CLI.') from e
     match=re.match(rb'gh version (\d+)\.(\d+)\.(\d+)(?:\s|$)',info.stdout)
@@ -57,7 +60,7 @@ def verify_artifact(path):
          '--repo',TRUSTED_REPO,'--signer-workflow',TRUSTED_WORKFLOW,
          '--source-ref','refs/heads/main','--deny-self-hosted-runners','--hostname','github.com']
     try:
-        result=subprocess.run(cmd,env=env,capture_output=True,timeout=90,check=False)
+        result=subprocess.run(cmd,env=env,capture_output=True,timeout=90,check=False,**quiet_process_options())
     except (OSError,subprocess.TimeoutExpired) as e:
         raise ValueError('No se pudo completar la verificación criptográfica.') from e
     if result.returncode!=0:
@@ -167,7 +170,7 @@ class Manager:
         atomic_json(self.statefile,{'active':prior,'previous':s['active'],'highest':s['highest']}); return prior
     def launch(self,args=()):
         path=self.verified(self.state()['active']); env=os.environ.copy(); env.update(JARVIS_DATA_DIR=str(self.root),JARVIS_MANAGED='1')
-        return subprocess.call([sys.executable,str(path/'jarvis_vision.py'),*args],cwd=self.root,env=env)
+        return subprocess.call([sys.executable,str(path/'jarvis_vision.py'),*args],cwd=self.root,env=env,**quiet_process_options())
     def feed(self): return read_json(self.feedfile).get('url','') if self.feedfile.exists() else ''
     def set_feed(self,url):
         if url and url!=TRUSTED_FEED: raise ValueError('Solo se permite el canal oficial de JARVIS.')

@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+.jarvis/
+modelos/
+capturas/
+*.pt
+camera_config.json
+.env*
+dist/

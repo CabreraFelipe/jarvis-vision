@@ -248,7 +248,8 @@ class App:
         testing=test_settings is not None
         selected=dict(test_settings if testing else self.speech_settings)
         options={'settings':selected,'base':CONFIG.parent} if selected!=speech_input.DEFAULT or testing else {}
-        natural=self.natural_turn.get() and not wake and not testing
+        natural=self.natural_turn.get() and not wake and not testing and selected['model']!='Whisper small'
+        if not wake and selected['model']=='Whisper small':options['on_processing']=lambda:self.results.put(('mic_state',epoch,'Whisper local: transcribiendo audio…'))
         bare=self.bare_wake.get() and wake
         def work():
             try:

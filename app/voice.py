@@ -13,6 +13,7 @@ _model_path=None
 def recognizer_input(sd,Model,KaldiRecognizer,settings,base):
     global _model,_model_path
     settings=speech_input.normalize(settings)
+    if settings['model']=='Whisper small':settings=dict(settings,model='Ligero')
     path=speech_input.model_path(base,settings['model']) if base is not None else (MODEL_DIR if settings['model']=='Ligero' else MODEL_DIR.with_name(speech_input.MODELS['Completo']))
     if not path.is_dir():raise RuntimeError('Falta el modelo español '+settings['model']+'. Revisá Herramientas > Micrófono y reconocimiento.')
     index=speech_input.resolve_device(sd,settings['device'])
@@ -45,8 +46,12 @@ class SpeechTurn:
             self.finished=True
         return ' '.join(self.parts)
 
-def listen(stop, seconds=6, on_ready=None, *, end_on_phrase=False, settings=None, base=None):
+def listen(stop, seconds=6, on_ready=None, *, end_on_phrase=False, settings=None, base=None, on_processing=None):
     global _model
+    selected=speech_input.normalize(settings)
+    if selected['model']=='Whisper small':
+        import whisper_input
+        return whisper_input.listen(base if base is not None else MODEL_DIR.parent.parent,selected,stop,seconds,on_ready,on_processing)
     import sounddevice as sd
     from vosk import Model, KaldiRecognizer
     if stop.is_set(): return ''

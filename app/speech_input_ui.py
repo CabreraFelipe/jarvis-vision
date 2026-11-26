@@ -13,9 +13,9 @@ def open_speech_input(root,base,settings,apply,test,busy):
     combo=ttk.Combobox(panel,values=labels,state='readonly',width=65);combo.pack(fill='x')
     if settings['device'] in choices:combo.current(choices.index(settings['device']))
     model=tk.StringVar(value=settings['model'])
-    ttk.Label(panel,text='Modelo español Vosk').pack(anchor='w',pady=(8,0))
-    ttk.Combobox(panel,textvariable=model,values=list(speech_input.MODELS),state='readonly').pack(fill='x')
-    ttk.Label(panel,text='Completo: requiere descargar y extraer vosk-model-es-0.42 en modelos. Ligero conserva el modelo actual. La prueba solo transcribe; no envía consultas a la IA.',wraplength=440).pack(pady=8)
+    ttk.Label(panel,text='Motor de transcripción manual').pack(anchor='w',pady=(8,0))
+    ttk.Combobox(panel,textvariable=model,values=list(speech_input.MANUAL_MODELS),state='readonly').pack(fill='x')
+    ttk.Label(panel,text='Vosk Completo y Whisper requieren modelos locales instalados. Whisper es experimental para Hablar y Probar; «Hola, JARVIS» conserva Vosk Ligero. La prueba solo transcribe, sin consulta a IA. Ver VOZ.txt.',wraplength=440).pack(pady=8)
     def run(preview=False):
         if busy():
             messagebox.showinfo('Micrófono','Detené la escucha continua y esperá a que termine la respuesta.',parent=win);return

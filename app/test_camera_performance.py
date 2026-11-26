@@ -51,4 +51,46 @@ class PerformanceTests(unittest.TestCase):
             def read(self):raise AssertionError('cancelled')
         _,fps=camera.measure_capture(NoRead(),frame,stop)
         self.assertEqual(fps,0)
+class NativeOnlyCap(FakeCap):
+    instances=[]
+    def __init__(self,index,backend):
+        super().__init__(index,backend);self.changed=False
+    def set(self,p,v): self.changed=True;return False
+    def read(self):
+        if self.changed:return False,None
+        return True,np.zeros((480,640,3),np.uint8)
+
+class CompatibilityTests(unittest.TestCase):
+    @patch('camera.cv2.VideoCapture',NativeOnlyCap)
+    def test_native_mode_never_changes_properties(self):
+        NativeOnlyCap.instances=[]
+        cap,frame=camera.open_camera(camera.normalize({'resolution':'Compatibilidad'}))
+        self.assertEqual(frame.shape[:2],(480,640));self.assertFalse(cap.changed)
+        self.assertEqual(len(NativeOnlyCap.instances),1);cap.release()
+    @patch('camera.cv2.VideoCapture',BackendCap)
+    def test_secondary_uses_legacy_without_probe(self):
+        config=dict(camera.normalize({'index':1,'resolution':'640x480'}),compatibility_first=True)
+        with patch('camera.measure_capture',side_effect=AssertionError('must not probe')):
+            cap,frame=camera.open_camera(config)
+        self.assertEqual(cap.index,1);self.assertEqual(frame.shape[:2],(480,640));cap.release()
+    @patch('camera.cv2.VideoCapture',BackendCap)
+    def test_performance_failure_falls_back_to_legacy(self):
+        with patch('camera.measure_capture',side_effect=lambda cap,frame,stop:(frame,0)):
+            cap,frame=camera.open_camera(camera.normalize({'resolution':'640x480','backend':'DirectShow'}))
+        self.assertEqual(cap.backend,cv2.CAP_DSHOW);self.assertEqual(frame.shape[:2],(480,640));cap.release()
+    @patch('camera.cv2.VideoCapture',BackendCap)
+    def test_secondary_can_opt_into_speed(self):
+        config=dict(camera.normalize({'index':1,'resolution':'Auto fluidez'}),compatibility_first=True)
+        with patch('camera.measure_capture',return_value=(np.zeros((720,1280,3),np.uint8),30)) as probe:
+            cap,frame=camera.open_camera(config)
+        probe.assert_called();self.assertEqual(frame.shape[:2],(720,1280));cap.release()
+    @patch('camera.cv2.VideoCapture',BackendCap)
+    def test_compatibility_respects_manual_backend(self):
+        cap,frame=camera.open_camera(camera.normalize({'resolution':'Compatibilidad','backend':'Media Foundation'}))
+        self.assertEqual(cap.backend,cv2.CAP_MSMF);cap.release()
+    def test_cancel_does_not_fallback(self):
+        stop=threading.Event();stop.set()
+        with patch('camera.open_compatible_camera') as legacy:
+            with self.assertRaises(RuntimeError):camera.open_camera(camera.normalize({}),stop)
+            legacy.assert_not_called()
 if __name__=='__main__':unittest.main()

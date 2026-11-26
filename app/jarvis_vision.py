@@ -78,7 +78,7 @@ class Slot:
                     if not self.app.in_use(self,prior['index']):
                         self.set_controls(prior); self.pending=prior; self.status.set('Restaurando configuración anterior…')
         if self.capture is None and self.pending is not None:
-            self.config=self.pending; self.pending=None; self.capture=Capture(self.config); self.status.set('Conectando…')
+            self.config=self.pending; self.pending=None; self.capture=Capture(dict(self.config,compatibility_first=self.num==1)); self.status.set('Conectando…')
         if not self.capture or self.capture.stop.is_set():
             if not self.capture and self.pending is None and self.status.get().startswith('Cerrando'): self.status.set('Desactivada')
             return

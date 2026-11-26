@@ -5,7 +5,7 @@ import time
 from pathlib import Path
 import cv2
 
-MODES = {'Automática': None, 'Auto fluidez': None, 'Auto calidad': None, '1920x1080': (1920,1080), '1280x720': (1280,720), '640x480': (640,480), 'Predeterminada': None}
+MODES = {'Automática': None, 'Auto fluidez': None, 'Auto calidad': None, 'Compatibilidad': None, '1920x1080': (1920,1080), '1280x720': (1280,720), '640x480': (640,480), 'Predeterminada': None}
 FORMATS = ('Automático','MJPG','YUY2')
 FPS = (15,30,60)
 BACKENDS=('Automático','DirectShow','Media Foundation')
@@ -64,7 +64,69 @@ def mode_score(frame,rate,target,profile):
     if profile=='Auto fluidez': return (rate>=target*.85,capped,pixels)
     return (rate>=target*.85,pixels if rate>=target*.85 else capped,capped if rate>=target*.85 else pixels)
 
-def open_camera(config, stop=None):
+def open_compatible_camera(config, stop=None):
+    """Use the V0.5.0 negotiation without a performance probe, or native defaults."""
+    index=config['index']; auto=config['resolution'] in AUTO_MODES or config['resolution']=='Compatibilidad'; explicit=MODES[config['resolution']]
+    # Try MJPG first in automatic mode for USB bandwidth, then driver defaults.
+    formats=['MJPG','Automático'] if config['format']=='Automático' and auto else [config['format']]
+    modes=[(1920,1080),(1280,720),(640,480),None] if auto else [explicit]
+    best=None
+    def cancelled(): return stop is not None and stop.is_set()
+    def attempt(backend,mode,fmt):
+        try: cap=cv2.VideoCapture(index,backend)
+        except cv2.error: return None
+        keep=False
+        try:
+            if not cap.isOpened(): return None
+            if cancelled(): return None
+            frame=try_mode(cap,mode,config['fps'],fmt,stop)
+            if frame is None: return None
+            if cancelled(): return None
+            keep=True; return cap,frame
+        except cv2.error: return None
+        finally:
+            if not keep: cap.release()
+    # Explicit compatibility mode tries native defaults first, with no property changes.
+    if config['resolution']=='Compatibilidad' and config['format']=='Automático':
+        drivers={'DirectShow':[cv2.CAP_DSHOW],'Media Foundation':[cv2.CAP_MSMF]}.get(config.get('backend'),[cv2.CAP_DSHOW,cv2.CAP_MSMF])
+        for backend in drivers:
+            if cancelled(): raise RuntimeError('Captura cancelada')
+            try: cap=cv2.VideoCapture(index,backend)
+            except cv2.error: continue
+            keep=False
+            try:
+                if not cap.isOpened(): continue
+                for _ in range(3):
+                    if cancelled(): raise RuntimeError('Captura cancelada')
+                    ok,frame=cap.read()
+                    if ok and frame is not None and frame.size and not cancelled():
+                        keep=True; return cap,frame
+            except cv2.error: pass
+            finally:
+                if not keep: cap.release()
+    # Legacy negotiation; do not probe other indices.
+    drivers={'DirectShow':[cv2.CAP_DSHOW],'Media Foundation':[cv2.CAP_MSMF]}.get(config.get('backend'),[cv2.CAP_DSHOW,cv2.CAP_MSMF])
+    for backend in drivers:
+        for mode in modes:
+            for fmt in formats:
+                if cancelled(): raise RuntimeError('Captura cancelada')
+                result=attempt(backend,mode,fmt)
+                if result is None: continue
+                cap,frame=result; h,w=frame.shape[:2]
+                if not auto or (w>=1920 and h>=1080): return cap,frame
+                score=w*h
+                if best is None or score>best[0]: best=(score,backend,mode,fmt)
+                cap.release()
+            # If both 1080 and 720 have been tried and HD was delivered, don't search lower modes.
+            if mode==(1280,720) and best and best[0]>=1280*720: break
+        if best: break  # retain working backend, avoid disrupting other camera
+    if best and not cancelled():
+        _,backend,mode,fmt=best; result=attempt(backend,mode,fmt)
+        if result is not None: return result
+    raise RuntimeError('No se pudo abrir la cámara con estos ajustes. Cerrá Zoom u otras apps; probá Predeterminada / Automático.')
+
+
+def open_performance_camera(config, stop=None):
     """Probe selected index sequentially; choose based on actual successful reads."""
     index=config['index']; profile=config['resolution']; auto=profile in AUTO_MODES
     explicit=MODES[profile]; fps=config['fps']
@@ -75,7 +137,9 @@ def open_camera(config, stop=None):
     best=None
     def cancelled(): return stop is not None and stop.is_set()
     def attempt(backend,mode,fmt,probe=True):
-        cap=cv2.VideoCapture(index,backend); keep=False
+        try: cap=cv2.VideoCapture(index,backend)
+        except cv2.error: return None
+        keep=False
         try:
             if not cap.isOpened() or cancelled(): return None
             frame=try_mode(cap,mode,fps,fmt,stop)
@@ -84,6 +148,7 @@ def open_camera(config, stop=None):
             if probe: frame,rate=measure_capture(cap,frame,stop)
             if cancelled() or (probe and rate<=0): return None
             keep=True; return cap,frame,rate
+        except cv2.error: return None
         finally:
             if not keep: cap.release()
     for mode in modes:
@@ -106,6 +171,21 @@ def open_camera(config, stop=None):
         _,backend,mode,fmt=best; result=attempt(backend,mode,fmt,probe=False)
         if result is not None: return result[0],result[1]
     raise RuntimeError('Captura cancelada' if cancelled() else 'No se pudo abrir la cámara. Probá Predeterminada / Automático u otro controlador.')
+
+def open_camera(config,stop=None):
+    """Retain fast webcam negotiation; restore the old path for fragile USB cameras."""
+    profile=config['resolution']
+    if profile=='Compatibilidad':
+        return open_compatible_camera(config,stop)
+    if config.get('compatibility_first') and profile not in ('Auto fluidez','Auto calidad'):
+        try: return open_compatible_camera(config,stop)
+        except RuntimeError:
+            if stop is not None and stop.is_set(): raise
+            return open_performance_camera(config,stop)
+    try: return open_performance_camera(config,stop)
+    except RuntimeError:
+        if stop is not None and stop.is_set(): raise
+        return open_compatible_camera(config,stop)
 
 class Capture:
     def __init__(self,config):

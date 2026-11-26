@@ -1,6 +1,8 @@
-# JARVIS Vision — V0.5.0
+# JARVIS Vision — V0.5.1
 
-Entrega acumulativa: memoria local explícita y selectiva, personalidad, diagnóstico, acceso directo Windows y reconocimiento de voz mejorado. Mantiene cámaras, YOLO, Ollama, Vosk, modo fijo de seis segundos, activación por voz y contexto de sesión. Sin dependencias obligatorias nuevas.
+Corrección de cámaras: selección de modos por FPS medidos, controladores configurables y vista previa optimizada. Validación simulada de PR7 completada; la prueba física de Redragon sigue pendiente. Se conservan las funciones de V0.5.0.
+
+Entrega acumulativa anterior: memoria local explícita y selectiva, personalidad, diagnóstico, acceso directo Windows y reconocimiento de voz mejorado. Mantiene cámaras, YOLO, Ollama, Vosk, modo fijo de seis segundos, activación por voz y contexto de sesión. Sin dependencias obligatorias nuevas.
 
 ## Actualizaciones
 Canal oficial: https://github.com/CabreraFelipe/jarvis-vision/releases/latest/download/feed.json
@@ -12,7 +14,7 @@ La memoria guarda únicamente notas explícitas, desactivada por defecto, en SQL
 
 ## Pruebas
 - Raíz: python -m unittest test_release test_security.
-- app: python -m unittest test_jarvis test_v04 test_wake041 test_core test_memory test_launcher test_diagnostics test_speech_turn.
+- app: python -m unittest test_jarvis test_v04 test_wake041 test_core test_memory test_launcher test_diagnostics test_speech_turn test_camera_performance.
 - UI simulada: python test_ui.py y python test_voice_ui.py (Linux con Xvfb).
 - El usuario confirmó la migración del gestor y la detección automática al abrir JARVIS.bat; no confirmó explícitamente instalación física de V0.4.4. El usuario confirmó las ocho comprobaciones de alto nivel de V0.5.0 en su PC. Webcam a 5 FPS reportada posteriormente; rendimiento pendiente de diagnóstico. Ver docs/ACCEPTANCE_V050.md.
 

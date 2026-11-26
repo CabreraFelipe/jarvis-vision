@@ -1,1 +1,3 @@
+V0.5.1: añadir test_camera_performance a la suite de V0.5.0. CI de PR7 superada en Windows y Linux (45875557736). Pendiente CI de publicación y prueba física de Redragon, cámaras simultáneas, selección manual, YOLO y voz.
+
 V0.5.0: ejecutar suites de raíz test_release test_security y de app test_jarvis test_v04 test_wake041 test_core test_memory test_launcher test_diagnostics test_speech_turn; UI simulada test_ui y test_voice_ui en Windows/Linux. Consultar GitHub Actions para resultado real. Hardware físico pendiente. El diagnóstico y la memoria no requieren acceso remoto.

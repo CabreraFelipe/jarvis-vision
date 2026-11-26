@@ -1,3 +1,15 @@
+V0.5.1 — rendimiento de cámaras
+================================
+Abrí mediante el gestor o acceso directo y aceptá la actualización. No reinstales.
+La resolución Automática intenta conservar 1080p si alcanza una tasa adecuada;
+Auto fluidez prioriza FPS y Auto calidad prioriza resolución. El controlador
+Automático compara DirectShow y Media Foundation según el rendimiento medido.
+Se mantienen los modos y formatos manuales. El sondeo puede demorar.
+Los índices pueden diferir según controlador; verificá que la imagen sea la correcta.
+La vista informa FPS de captura y de visualización por separado; la IA y las fotos
+siguen utilizando el fotograma original. No se garantizan 30 FPS en hardware real.
+Si hay regresión, cerrá y restaurá V0.5.0 desde el gestor.
+
 JARVIS Vision V0.5.0 — instalación administrada
 ================================================
 Abrí JARVIS.bat o el acceso directo de escritorio al gestor. Aceptá la nueva

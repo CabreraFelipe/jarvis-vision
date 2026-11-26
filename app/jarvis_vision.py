@@ -10,7 +10,7 @@ import tkinter as tk
 from tkinter import ttk,messagebox
 import cv2
 from PIL import Image,ImageTk
-from camera import Capture, MODES, FORMATS, FPS, BACKENDS, load_config, save_config
+from camera import recipe_key,load_start_cache,save_start_cache,Capture, MODES, FORMATS, FPS, BACKENDS, load_config, save_config
 from vision import ask_vision
 import voice
 import voice_output
@@ -85,7 +85,7 @@ class Slot:
                     if not self.app.in_use(self,prior['index']):
                         self.set_controls(prior); self.pending=prior; self.status.set('Restaurando configuración anterior…')
         if self.capture is None and self.pending is not None:
-            self.config=self.pending; self.pending=None; self.capture=Capture(self.config); self.status.set('Conectando…')
+            self.config=self.pending; self.pending=None; self.capture=Capture(self.config,self.app.start_cache.get(recipe_key(self.config))); self.status.set('Conectando…')
         if not self.capture or self.capture.stop.is_set():
             if not self.capture and self.pending is None and self.status.get().startswith('Cerrando'): self.status.set('Desactivada')
             return
@@ -96,11 +96,17 @@ class Slot:
             self.status.set(status);return
         if not self.saved:
             self.saved=True; self.fallback=None; self.app.profiles[str(self.config['index'])]=dict(self.config); self.app.persist()
+        if self.capture.remember_enabled and self.capture.recipe is not None:
+            key=recipe_key(self.config)
+            if self.app.start_cache.get(key)!=self.capture.recipe:
+                self.app.start_cache[key]=self.capture.recipe
+                try:save_start_cache(self.app.start_cache_path,self.app.start_cache)
+                except OSError:pass
         now=time.monotonic(); h,w=frame.shape[:2]
         stale=now-stamp>=2
         if now-self.last_status>=.25 or self.last_render is None:
             self.last_status=now
-            self.status.set(f'{w} × {h} efectivos | {fps:.1f} FPS captura | {fmt} ({self.capture.backend})\nVista: {self.preview_fps:.1f} FPS | Solicitado: {self.config["fps"]} FPS' + (' | señal demorada' if stale else ''))
+            self.status.set(f'{w} × {h} efectivos | {fps:.1f} FPS captura | {fmt} ({self.capture.backend})\nVista: {self.preview_fps:.1f} FPS | Solicitado: {self.config["fps"]} FPS' + (f' | Inicio: {self.capture.open_seconds:.1f} s' if self.capture.open_seconds is not None else '') + (' | señal demorada' if stale else ''))
         if stale:
             if self.photo is not None: self.clear('Esperando imagen…')
             return
@@ -129,6 +135,7 @@ class App:
         self.memory=Memory(CONFIG.parent/'jarvis_memory.sqlite3'); self.memory_window=None; self.diagnostics_window=None; self.speech_input_window=None; self.voice_output_window=None
         self.voice_settings_path=CONFIG.parent/'voice_preferences.json';self.voice_settings=voice_output.load(self.voice_settings_path)
         self.speech_path=CONFIG.parent/'speech_input.json';self.speech_settings=speech_input.load(self.speech_path)
+        self.start_cache_path=CONFIG.parent/'camera_start_cache.json';self.start_cache=load_start_cache(self.start_cache_path)
         a,b,self.profiles=load_config(CONFIG)
         if index is not None: a=dict(self.profiles.get(str(index),a)); a['index']=index
         if b['index']==a['index']: b=dict(b,index=1 if a['index']!=1 else 0)

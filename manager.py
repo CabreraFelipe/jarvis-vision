@@ -1,4 +1,4 @@
-"""JARVIS manager protocol 1. Trusted local release ZIP or user-configured HTTPS feed."""
+"""JARVIS secure manager candidate. Protocol 1 packages with verified GitHub provenance."""
 import hashlib, json, os, re, shutil, subprocess, sys, tempfile, zipfile
 from contextlib import contextmanager
 from pathlib import Path
@@ -6,6 +6,9 @@ from urllib.request import Request, build_opener, HTTPRedirectHandler
 from urllib.parse import urlparse
 
 PROTOCOL=1
+TRUSTED_REPO='CabreraFelipe/jarvis-vision'
+TRUSTED_FEED=f'https://github.com/{TRUSTED_REPO}/releases/latest/download/feed.json'
+TRUSTED_WORKFLOW=f'{TRUSTED_REPO}/.github/workflows/release.yml'
 MAX_ZIP=50*1024*1024
 MAX_FILE=20*1024*1024
 MAX_MANIFEST=128*1024
@@ -31,6 +34,38 @@ def atomic_json(path,data):
 
 def read_json(path): return json.loads(path.read_text(encoding='utf-8'))
 def digest(data): return hashlib.sha256(data).hexdigest()
+
+def verify_artifact(path):
+    """Use a separately installed trusted GitHub CLI. Failure never permits installation."""
+    cwd=Path.cwd().resolve()
+    dirs=[p for p in os.environ.get('PATH','').split(os.pathsep)
+          if p and Path(p).is_absolute() and Path(p).resolve()!=cwd]
+    gh=shutil.which('gh',path=os.pathsep.join(dirs))
+    if not gh: raise ValueError('Verificación no disponible: instalá GitHub CLI oficial y autenticá tu cuenta si es necesario.')
+    env=os.environ.copy()
+    env.update(GH_HOST='github.com', GH_PROMPT_DISABLED='1', GH_NO_UPDATE_NOTIFIER='1')
+    cmd=[str(Path(gh).resolve()),'attestation','verify',str(Path(path).resolve()),
+         '--repo',TRUSTED_REPO,'--signer-workflow',TRUSTED_WORKFLOW,
+         '--source-ref','refs/heads/main','--deny-self-hosted-runners','--hostname','github.com']
+    try:
+        result=subprocess.run(cmd,env=env,capture_output=True,timeout=90,check=False)
+    except (OSError,subprocess.TimeoutExpired) as e:
+        raise ValueError('No se pudo completar la verificación criptográfica.') from e
+    if result.returncode!=0:
+        raise ValueError('Atestación no válida o no disponible. No se instaló la actualización.')
+
+def verify_bytes(data,name):
+    with tempfile.TemporaryDirectory() as d:
+        p=Path(d)/name; p.write_bytes(data); verify_artifact(p)
+
+def validate_feed(m):
+    v=m['version']; version(v)
+    if m.get('product')!='jarvis-vision' or m.get('protocol')!=PROTOCOL: raise ValueError('Canal incompatible')
+    expected=f'https://github.com/{TRUSTED_REPO}/releases/download/v{v}/JARVIS_Vision_V{v}.zip'
+    if m.get('url')!=expected: raise ValueError('Origen del paquete no autorizado')
+    h=m['sha256']
+    if not isinstance(h,str) or not SHA_RE.fullmatch(h): raise ValueError('SHA-256 inválido en canal')
+    return m
 
 def manifest(raw):
     m=json.loads(raw); version(m['version'])
@@ -70,6 +105,10 @@ class Manager:
         s=read_json(self.statefile)
         for k in ('active','previous'):
             if s.get(k) is not None: version(s[k])
+        highest=s.get('highest',s.get('active'))
+        if highest is not None: version(highest)
+        candidates=[v for v in (highest,s.get('active'),s.get('previous')) if v is not None]
+        s['highest']=max(candidates,key=version) if candidates else None
         return s
     def verified(self,v):
         version(v); path=self.versions/v; m=manifest((path/'release.json').read_bytes())
@@ -90,7 +129,7 @@ class Manager:
                 if 'release.json' not in names or z.getinfo('release.json').file_size>MAX_MANIFEST: raise ValueError('Manifiesto ausente o demasiado grande')
                 raw=z.read('release.json'); m=manifest(raw); v=m['version']
                 if expected_version and v!=expected_version: raise ValueError('Versión distinta a la anunciada')
-                if old['active'] and version(v)<=version(old['active']): raise ValueError('No es una versión más reciente; usá restaurar para volver atrás')
+                if old.get('highest',old['active']) and version(v)<=version(old.get('highest',old['active'])): raise ValueError('No es una versión más reciente; usá restaurar para volver atrás')
                 allowed={'release.json','manager.py','INSTALAR_ACTUALIZADOR.py','INSTALAR_ACTUALIZADOR.bat','LEEME.txt','app/'}|{'app/'+n for n in m['files']}
                 if not set(names).issubset(allowed): raise ValueError('Entradas no autorizadas en ZIP')
                 if sum(i.file_size for i in entries)>MAX_ZIP or any(i.file_size>MAX_FILE for i in entries): raise ValueError('Tamaño descomprimido excesivo')
@@ -108,7 +147,7 @@ class Manager:
                     self.verified(v)
                     if (dest/'release.json').read_bytes()!=raw: raise ValueError('Versión existente con contenido diferente')
                 else: os.replace(stage,dest); stage=None
-                atomic_json(self.statefile,{'active':v,'previous':old['active']})
+                atomic_json(self.statefile,{'active':v,'previous':old['active'],'highest':v})
                 return v
         finally:
             if stage is not None: shutil.rmtree(stage,ignore_errors=True)
@@ -116,26 +155,39 @@ class Manager:
         s=self.state(); prior=s['previous']
         if not prior: raise ValueError('Todavía no hay una versión administrada anterior')
         self.verified(prior)
-        atomic_json(self.statefile,{'active':prior,'previous':s['active']}); return prior
+        atomic_json(self.statefile,{'active':prior,'previous':s['active'],'highest':s['highest']}); return prior
     def launch(self,args=()):
         path=self.verified(self.state()['active']); env=os.environ.copy(); env.update(JARVIS_DATA_DIR=str(self.root),JARVIS_MANAGED='1')
         return subprocess.call([sys.executable,str(path/'jarvis_vision.py'),*args],cwd=self.root,env=env)
     def feed(self): return read_json(self.feedfile).get('url','') if self.feedfile.exists() else ''
     def set_feed(self,url):
-        if url: https(url)
+        if url and url!=TRUSTED_FEED: raise ValueError('Solo se permite el canal oficial de JARVIS.')
         atomic_json(self.feedfile,{'url':url})
     def check(self):
         url=self.feed()
         if not url: return None
-        m=json.loads(fetch(url,MAX_MANIFEST)); v=m['version']; version(v)
-        if m.get('product')!='jarvis-vision' or m.get('protocol')!=PROTOCOL: raise ValueError('Canal incompatible')
-        https(m['url']); h=m['sha256']
-        if not isinstance(h,str) or not SHA_RE.fullmatch(h): raise ValueError('SHA-256 inválido en canal')
-        active=self.state()['active']; return m if not active or version(v)>version(active) else None
+        if url!=TRUSTED_FEED: raise ValueError('Canal no autorizado; configurá el canal oficial.')
+        raw=fetch(url,MAX_MANIFEST); verify_bytes(raw,'feed.json')
+        m=validate_feed(json.loads(raw)); v=m['version']
+        s=self.state(); highest=s.get('highest',s.get('active'))
+        return m if not highest or version(v)>version(highest) else None
     def download(self,m):
+        validate_feed(m)
         data=fetch(m['url'],MAX_ZIP)
+        if digest(data)!=m['sha256']: raise ValueError('SHA-256 del ZIP no coincide')
         with tempfile.TemporaryDirectory() as tmp:
-            p=Path(tmp)/'release.zip'; p.write_bytes(data); return self.install(p,m['version'],m['sha256'])
+            p=Path(tmp)/'release.zip'; p.write_bytes(data)
+            verify_artifact(p)
+            return self.install(p,m['version'],m['sha256'])
+    def install_local(self,package):
+        # Copy into a private temporary directory before verification, avoiding a swap of the selected file.
+        with tempfile.TemporaryDirectory() as tmp:
+            p=Path(tmp)/'release.zip'
+            with Path(package).open('rb') as f:
+                data=f.read(MAX_ZIP+1)
+            if len(data)>MAX_ZIP: raise ValueError('ZIP demasiado grande')
+            p.write_bytes(data); verify_artifact(p)
+            return self.install(p)
 
 def https(url):
     u=urlparse(url)
@@ -166,14 +218,14 @@ def ui(m, startup=False):
         finally: busy=False; root.config(cursor='')
     def install():
         p=filedialog.askopenfilename(parent=root,filetypes=[('Paquete JARVIS','*.zip')]);
-        if p and messagebox.askyesno('Instalar','¿Confiás en el origen de este paquete? Solo se actualizará el programa.',parent=root): messagebox.showinfo('Actualizado','Versión instalada: '+m.install(p),parent=root)
+        if p and messagebox.askyesno('Instalar','¿Confiás en el origen de este paquete? Solo se actualizará el programa.',parent=root): messagebox.showinfo('Actualizado','Versión instalada: '+m.install_local(p),parent=root)
     def check():
         if not m.feed(): messagebox.showinfo('Canal','Todavía no hay un canal publicado. Configuralo o instalá un ZIP.',parent=root); return
         new=m.check()
         if new is None: messagebox.showinfo('Canal','No hay una versión más reciente.',parent=root); return
         if messagebox.askyesno('Actualización',f"Disponible V{new['version']}. ¿Descargar e instalar desde el canal configurado?",parent=root): messagebox.showinfo('Actualizado','Versión instalada: '+m.download(new),parent=root)
     def configure():
-        url=simpledialog.askstring('Canal HTTPS','URL del manifiesto de un canal de confianza. Vacío para desactivar. Los paquetes pueden ejecutar código.',initialvalue=m.feed(),parent=root)
+        url=simpledialog.askstring('Canal HTTPS','Canal oficial de JARVIS. Vacío para desactivar.',initialvalue=m.feed() or TRUSTED_FEED,parent=root)
         if url is not None: m.set_feed(url.strip())
     def restore():
         if messagebox.askyesno('Restaurar','¿Volver a la versión anterior? Los datos compartidos no se revierten.',parent=root): messagebox.showinfo('Restaurado','Versión activa: '+m.rollback(),parent=root)

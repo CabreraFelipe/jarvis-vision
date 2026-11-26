@@ -1,7 +1,7 @@
 """Bounded, opt-in conversational follow-up; no audio or transcript persistence."""
 import re,unicodedata
 
-STOP={'terminar conversacion','fin de la conversacion','jarvis termina la conversacion','deja de escuchar','jarvis deja de escuchar','cancelar microfono'}
+STOP={'terminar conversacion','termina la conversacion','fin de la conversacion','jarvis termina la conversacion','deja de escuchar','jarvis deja de escuchar','cancelar microfono'}
 
 def stop_phrase(text):
     clean=''.join(c for c in unicodedata.normalize('NFD',text.casefold()) if not unicodedata.combining(c))

@@ -14,8 +14,10 @@ class FollowupTests(unittest.TestCase):
     def test_reactivation(self):
         f=Followup();old=f.initial();new=f.initial();f.accepted(old);self.assertFalse(f.take());f.accepted(new);self.assertTrue(f.take())
     def test_stop_exact(self):
-        self.assertTrue(stop_phrase('¡Dejá de escuchar!') is False)
+        self.assertTrue(stop_phrase('¡Dejá de escuchar!'))
         for phrase in ('Deja de escuchar','Terminar conversación.','JARVIS, termina la conversación','Cancelar micrófono'):
             self.assertTrue(stop_phrase(phrase),phrase)
         self.assertFalse(stop_phrase('Explicame cómo terminar conversación'))
+        self.assertTrue(stop_phrase('Terminá la conversación'))
+        self.assertFalse(stop_phrase('No dejes de escuchar'))
 if __name__=='__main__':unittest.main()

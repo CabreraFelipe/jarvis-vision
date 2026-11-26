@@ -7,3 +7,5 @@ capturas/
 camera_config.json
 .env*
 dist/
+
+jarvis_memory.sqlite3*

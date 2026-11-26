@@ -65,3 +65,23 @@ with tempfile.TemporaryDirectory() as d, patch('camera.cv2.VideoCapture',FakeCap
         print('UI seguimiento: dos preguntas con una activación, voz sin escucha, parada local sin consulta OK')
     finally:
         app.close();assert app.shutdown.wait(2)
+
+# Real local command path with simulated wake and explicit confirmation.
+def memory_wake(stop,on_state):
+    return 'recordá que prefiero el cine'
+with tempfile.TemporaryDirectory() as d, patch('camera.cv2.VideoCapture',FakeCap), patch.object(j,'CONFIG',Path(d)/'config.json'), patch.object(j,'ask_vision') as model, patch.object(j.voice,'listen_wake',side_effect=memory_wake), patch.object(j.messagebox,'askyesno',return_value=True) as confirm:
+    root=tk.Tk();app=j.App(root,0)
+    try:
+        app.mode.set('Conversación sin cámara')
+        app.toggle_wake()
+        wait(root,lambda:bool(app.memory.items()) and not app.wake_enabled)
+        assert app.memory.items()[0][1]=='prefiero el cine'
+        assert not model.called and confirm.call_count==1
+        assert not app.memory.settings()[0]
+        app.question.delete(0,'end');app.question.insert(0,'olvidá prefiero el cine')
+        confirm.return_value=False
+        assert app.ask()
+        assert len(app.memory.items())==1 and not model.called
+        print('UI comandos de memoria: voz, consentimiento, sin IA y cancelación de borrado OK')
+    finally:
+        app.close();assert app.shutdown.wait(2)

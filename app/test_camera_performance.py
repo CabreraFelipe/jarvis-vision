@@ -116,7 +116,7 @@ class RecoveryTests(unittest.TestCase):
     def test_initial_failure_retries_same_config(self):
         cfg=camera.normalize({'index':1,'resolution':'Inicio rápido','backend':'DirectShow'})
         cap=FakeCap(1,cv2.CAP_DSHOW);_,frame=cap.read()
-        with patch('camera.open_camera',side_effect=[RuntimeError('USB starting'),(cap,frame)]) as open_:
+        with patch('camera.open_compatible_camera',side_effect=[RuntimeError('USB starting'),(cap,frame)]) as open_:
             s=camera.Capture(cfg)
             try:
                 end=time.monotonic()+3
@@ -153,4 +153,43 @@ class RecoveryTests(unittest.TestCase):
         with patch('camera.open_camera',side_effect=fail) as open_:
             s=camera.Capture(camera.normalize({'resolution':'Compatibilidad'}));s.thread.join(2)
             self.assertEqual(open_.call_count,1);self.assertEqual(s.snapshot()[3],'Desactivada')
+class RememberedStartTests(unittest.TestCase):
+    def cfg(self):
+        return camera.normalize({'index':1,'resolution':'Compatibilidad','backend':'DirectShow'})
+    @patch('camera.cv2.VideoCapture',NativeOnlyCap)
+    def test_remembered_native_single_open(self):
+        NativeOnlyCap.instances=[];cfg=self.cfg();recipes=[]
+        cap,frame=camera.open_compatible_camera(cfg,on_recipe=recipes.append);cap.release()
+        NativeOnlyCap.instances=[]
+        cap,frame=camera.open_compatible_camera(cfg,remembered=recipes[0])
+        self.assertEqual(len(NativeOnlyCap.instances),1);self.assertFalse(cap.changed);cap.release()
+    @patch('camera.cv2.VideoCapture',NativeOnlyCap)
+    def test_failed_recipe_releases_then_falls_back(self):
+        NativeOnlyCap.instances=[];cfg=self.cfg()
+        recipe={'backend':cv2.CAP_DSHOW,'mode':(640,480),'format':'MJPG','native':False}
+        with patch('camera.wait_first_frame',side_effect=lambda cap,stop=None:None if cap.changed else np.zeros((480,640,3),np.uint8)):
+            cap,frame=camera.open_compatible_camera(cfg,remembered=recipe)
+        self.assertEqual(len(NativeOnlyCap.instances),2);self.assertTrue(NativeOnlyCap.instances[0].released);self.assertFalse(cap.changed);cap.release()
+    def test_wrong_backend_and_normal_profile_ignore_recipe(self):
+        cfg=self.cfg();recipe={'backend':cv2.CAP_MSMF,'mode':None,'format':'Automático','native':True}
+        self.assertIsNone(camera.valid_recipe(cfg,recipe))
+        self.assertIsNone(camera.valid_recipe(dict(cfg,backend='Automático'),dict(recipe,backend=cv2.CAP_DSHOW)))
+        self.assertIsNone(camera.valid_recipe(dict(cfg,resolution='Automática'),dict(recipe,backend=cv2.CAP_DSHOW)))
+    def test_config_key_includes_index_format_fps_and_backend(self):
+        cfg=self.cfg()
+        for changes in ({'index':2},{'fps':15},{'format':'MJPG'},{'backend':'Media Foundation'},{'resolution':'Inicio rápido'}):
+            self.assertNotEqual(camera.recipe_key(cfg),camera.recipe_key(dict(cfg,**changes)))
+    @patch('camera.cv2.VideoCapture',NativeOnlyCap)
+    def test_quick_start_native_without_property_changes(self):
+        cfg=dict(self.cfg(),resolution='Inicio rápido')
+        cap,frame=camera.open_camera(cfg)
+        self.assertFalse(cap.changed);cap.release()
+    def test_cache_roundtrip(self):
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as d:
+            p=Path(d)/'camera_start_cache.json';cfg=self.cfg()
+            r={'backend':cv2.CAP_DSHOW,'mode':(640,480),'format':'MJPG','native':False}
+            camera.save_start_cache(p,{camera.recipe_key(cfg):r})
+            self.assertEqual(camera.valid_recipe(cfg,camera.load_start_cache(p)[camera.recipe_key(cfg)]),r)
 if __name__=='__main__':unittest.main()

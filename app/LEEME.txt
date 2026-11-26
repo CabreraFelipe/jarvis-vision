@@ -155,3 +155,5 @@ V0.4.1: corrección de frase de activación y estado de diagnóstico Vosk.
 No hay dependencias nuevas. Con JARVIS cerrado, copiá camera_config.json,
 modelos, capturas y yolo11n.pt desde tu instalación anterior si existen.
 Ver VOZ.txt para probar. No se modifica el contenido de la instalación anterior.
+
+Arranque compatible: seleccionar controlador explícito y formato Automático, probar Compatibilidad o Inicio rápido. El inicio exitoso recuerda receta de apertura para el mismo perfil y muestra segundos hasta imagen; borrar camera_start_cache.json con JARVIS cerrado si se desea olvidar recetas. Si falla, vuelve a negociación anterior. No cambia los modos normales. Los índices pueden cambiar con dispositivos USB.

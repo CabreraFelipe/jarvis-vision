@@ -39,6 +39,55 @@ def save_config(path,a,b,profiles):
 
 RECOVERY_MODES=('Compatibilidad','Inicio rápido')
 
+def recipe_key(config):
+    return json.dumps(normalize(config),sort_keys=True,separators=(',',':'))
+
+def valid_recipe(config,recipe):
+    # Only cache the explicitly selected backend; indices may differ across APIs.
+    if config['resolution'] not in RECOVERY_MODES or config['backend']=='Automático' or not isinstance(recipe,dict):return None
+    driver={'DirectShow':cv2.CAP_DSHOW,'Media Foundation':cv2.CAP_MSMF}[config['backend']]
+    if type(recipe.get('backend')) is not int or recipe['backend']!=driver:return None
+    mode=recipe.get('mode')
+    if mode is not None:
+        if not isinstance(mode,(list,tuple)) or len(mode)!=2 or any(type(x) is not int for x in mode):return None
+        mode=tuple(mode)
+        if mode not in ((1920,1080),(1280,720),(640,480)):return None
+    fmt=recipe.get('format');native=recipe.get('native')
+    if fmt not in FORMATS or type(native) is not bool:return None
+    if native and (mode is not None or fmt!='Automático' or config['format']!='Automático'):return None
+    if not native and config['format']!='Automático' and fmt!=config['format']:return None
+    if config['resolution']=='Inicio rápido' and not native and mode is not None:return None
+    return {'backend':driver,'mode':mode,'format':fmt,'native':native}
+
+def load_start_cache(path):
+    try:
+        path=Path(path)
+        if path.stat().st_size>65536:return {}
+        raw=json.loads(path.read_text(encoding='utf-8'))
+        return raw if isinstance(raw,dict) else {}
+    except (OSError,ValueError):return {}
+
+def save_start_cache(path,cache):
+    path=Path(path);tmp=path.with_suffix('.tmp')
+    tmp.write_text(json.dumps(dict(list(cache.items())[-64:]),ensure_ascii=False),encoding='utf-8')
+    tmp.replace(path)
+
+def open_recipe(config,recipe,stop):
+    recipe=valid_recipe(config,recipe)
+    if recipe is None or (stop is not None and stop.is_set()):return None
+    cap=None;keep=False
+    try:
+        cap=cv2.VideoCapture(config['index'],recipe['backend'])
+        if not cap.isOpened() or (stop is not None and stop.is_set()):return None
+        frame=(wait_first_frame(cap,stop) if recipe['native'] else
+               try_mode(cap,recipe['mode'],config['fps'],recipe['format'],stop,slow_start=True))
+        if frame is None or (stop is not None and stop.is_set()):return None
+        keep=True;return cap,frame
+    except cv2.error:return None
+    finally:
+        if cap is not None and not keep:cap.release()
+
+
 def wait_first_frame(cap,stop=None,seconds=1.5,max_reads=20):
     """Allow slow UVC initialization on the same handle. Cannot bound a native read."""
     deadline=time.monotonic()+seconds
@@ -83,7 +132,7 @@ def mode_score(frame,rate,target,profile):
     if profile=='Auto fluidez': return (rate>=target*.85,capped,pixels)
     return (rate>=target*.85,pixels if rate>=target*.85 else capped,capped if rate>=target*.85 else pixels)
 
-def open_compatible_camera(config, stop=None):
+def open_compatible_camera(config, stop=None, *, remembered=None, on_recipe=None):
     """Use the V0.5.0 negotiation without a performance probe, or native defaults."""
     index=config['index']; auto=config['resolution'] in AUTO_MODES or config['resolution']=='Compatibilidad'; explicit=MODES[config['resolution']]
     # Try MJPG first in automatic mode for USB bandwidth, then driver defaults.
@@ -91,6 +140,15 @@ def open_compatible_camera(config, stop=None):
     modes=[(1920,1080),(1280,720),(640,480),None] if auto else [explicit]
     best=None
     def cancelled(): return stop is not None and stop.is_set()
+    def selected(result,backend,mode,fmt,native=False):
+        if on_recipe:on_recipe({'backend':backend,'mode':mode,'format':fmt,'native':native})
+        return result
+    cached=valid_recipe(config,remembered)
+    if cached is not None:
+        result=open_recipe(config,cached,stop)
+        if result is not None:
+            return selected(result,cached['backend'],cached['mode'],cached['format'],cached['native'])
+        if cancelled():raise RuntimeError('Captura cancelada')
     def attempt(backend,mode,fmt):
         try: cap=cv2.VideoCapture(index,backend)
         except cv2.error: return None
@@ -106,7 +164,7 @@ def open_compatible_camera(config, stop=None):
         finally:
             if not keep: cap.release()
     # Explicit compatibility mode tries native defaults first, with no property changes.
-    if config['resolution']=='Compatibilidad' and config['format']=='Automático':
+    if config['resolution'] in RECOVERY_MODES and config['format']=='Automático':
         drivers={'DirectShow':[cv2.CAP_DSHOW],'Media Foundation':[cv2.CAP_MSMF]}.get(config.get('backend'),[cv2.CAP_DSHOW,cv2.CAP_MSMF])
         for backend in drivers:
             if cancelled(): raise RuntimeError('Captura cancelada')
@@ -117,7 +175,7 @@ def open_compatible_camera(config, stop=None):
                 if not cap.isOpened(): continue
                 frame=wait_first_frame(cap,stop)
                 if frame is not None and not cancelled():
-                    keep=True;return cap,frame
+                    keep=True;return selected((cap,frame),backend,None,'Automático',True)
             except cv2.error: pass
             finally:
                 if not keep: cap.release()
@@ -130,7 +188,7 @@ def open_compatible_camera(config, stop=None):
                 result=attempt(backend,mode,fmt)
                 if result is None: continue
                 cap,frame=result; h,w=frame.shape[:2]
-                if not auto or (w>=1920 and h>=1080): return cap,frame
+                if not auto or (w>=1920 and h>=1080): return selected((cap,frame),backend,mode,fmt)
                 score=w*h
                 if best is None or score>best[0]: best=(score,backend,mode,fmt)
                 cap.release()
@@ -139,7 +197,7 @@ def open_compatible_camera(config, stop=None):
         if best: break  # retain working backend, avoid disrupting other camera
     if best and not cancelled():
         _,backend,mode,fmt=best; result=attempt(backend,mode,fmt)
-        if result is not None: return result
+        if result is not None: return selected(result,backend,mode,fmt)
     raise RuntimeError('No se pudo abrir la cámara con estos ajustes. Cerrá Zoom u otras apps; probá Predeterminada / Automático.')
 
 
@@ -200,8 +258,8 @@ def open_camera(config,stop=None):
         return open_compatible_camera(config,stop)
 
 class Capture:
-    def __init__(self,config):
-        self.config=dict(config); self.stop=threading.Event(); self.lock=threading.Lock()
+    def __init__(self,config,remembered=None):
+        self.config=dict(config);self.recipe=valid_recipe(self.config,remembered);self.remember_enabled=self.config['resolution'] in RECOVERY_MODES and self.config['backend']!='Automático';self.open_seconds=None;self.started=time.monotonic(); self.stop=threading.Event(); self.lock=threading.Lock()
         self.frame=None; self.stamp=0.; self.fps=0.; self.status='Midiendo modos de captura…'; self.format=''; self.backend='No informado'; self.ready=False
         self.thread=threading.Thread(target=self.run,daemon=True); self.thread.start()
     def snapshot(self):
@@ -213,12 +271,17 @@ class Capture:
             if self.stop.is_set():break
             cap=None
             try:
-                cap,frame=open_camera(self.config,self.stop)
+                if self.remember_enabled:
+                    def record(recipe):self.recipe=valid_recipe(self.config,recipe)
+                    cap,frame=open_compatible_camera(self.config,self.stop,remembered=self.recipe,on_recipe=record)
+                else:cap,frame=open_camera(self.config,self.stop)
+                self.open_seconds=time.monotonic()-self.started
                 self.stream(cap,frame)
                 break
             except Exception as exc:
                 with self.lock:
                     self.frame=None; self.ready=False; self.fps=0.;self.stamp=0.
+                    self.recipe=None;self.open_seconds=None
                     self.status=str(exc)
                 if self.stop.is_set() or attempt+1>=attempts:break
             finally:

@@ -20,6 +20,12 @@ class SecurityTests(unittest.TestCase):
             with self.assertRaises(InstanceBusy):
                 with instance_lock(self.m.store): pass
         with instance_lock(self.m.store): pass
+    def test_focus_small_clock_skew(self):
+        from manager import request_focus,consume_focus
+        self.assertTrue(request_focus(self.m.store))
+        stamp=(self.m.store/'focus-request.json').stat().st_mtime
+        with patch('manager.time.time',return_value=stamp-.05):
+            self.assertTrue(consume_focus(self.m.store))
     def test_expired_focus_signal(self):
         import os,time
         from manager import request_focus,consume_focus

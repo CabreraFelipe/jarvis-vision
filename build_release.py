@@ -1,6 +1,7 @@
 """Build protocol-1 release artifacts from an explicit allowlist, no user data."""
 import hashlib,json,re,sys,zipfile
 from pathlib import Path
+from manager import manager_revision_of
 ROOT=Path(__file__).resolve().parent
 FILES='jarvis_vision.py assistant_core.py test_core.py memory.py memory_ui.py test_memory.py windows_launcher.py test_launcher.py diagnostics.py diagnostics_ui.py test_diagnostics.py test_speech_turn.py test_camera_performance.py instance_focus.py test_instance_focus.py camera.py voice.py conversation.py vision.py requirements.txt requirements-voice.txt INICIAR.bat INSTALAR.bat INSTALAR_VOZ.bat LEEME.txt PRUEBAS.txt VOZ.txt test_jarvis.py test_ui.py test_v04.py test_voice_ui.py test_wake041.py'.split()
 def build(repo,out):
@@ -23,6 +24,10 @@ def build(repo,out):
         write('release.json',json.dumps(manifest,indent=2))
         for n,data in files.items():write('app/'+n,data)
     feed={'product':'jarvis-vision','protocol':1,'version':v,'url':f'https://github.com/{repo}/releases/download/v{v}/{name}','sha256':hashlib.sha256(package.read_bytes()).hexdigest()}
+    manager_data=(ROOT/'manager.py').read_bytes()
+    compile(manager_data,'manager.py','exec')
+    feed['manager']={'revision':manager_revision_of(manager_data),'url':f'https://github.com/{repo}/releases/download/v{v}/manager.py','sha256':hashlib.sha256(manager_data).hexdigest()}
+    (out/'manager.py').write_bytes(manager_data)
     (out/'feed.json').write_text(json.dumps(feed,indent=2)+'\n',encoding='utf-8')
     return package,feed
 if __name__=='__main__':print(build(sys.argv[1],sys.argv[2]))

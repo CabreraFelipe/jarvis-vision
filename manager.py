@@ -1,11 +1,12 @@
 """JARVIS secure manager candidate. Protocol 1 packages with verified GitHub provenance."""
-import hashlib, json, os, re, shutil, subprocess, sys, tempfile, zipfile, time
+import ast, hashlib, json, os, re, shutil, subprocess, sys, tempfile, zipfile, time
 from contextlib import contextmanager
 from pathlib import Path
 from urllib.request import Request, build_opener, HTTPRedirectHandler
 from urllib.parse import urlparse
 
 PROTOCOL=1
+MANAGER_REVISION=1
 TRUSTED_REPO='CabreraFelipe/jarvis-vision'
 TRUSTED_FEED=f'https://github.com/{TRUSTED_REPO}/releases/latest/download/feed.json'
 TRUSTED_WORKFLOW=f'{TRUSTED_REPO}/.github/workflows/release.yml@refs/heads/main'
@@ -77,7 +78,28 @@ def validate_feed(m):
     if m.get('url')!=expected: raise ValueError('Origen del paquete no autorizado')
     h=m['sha256']
     if not isinstance(h,str) or not SHA_RE.fullmatch(h): raise ValueError('SHA-256 inválido en canal')
+    if 'manager' in m:
+        entry=m['manager']
+        if not isinstance(entry,dict) or set(entry)!={'revision','url','sha256'}:
+            raise ValueError('Metadatos del gestor inválidos')
+        rev=entry['revision']; sha=entry['sha256']
+        if type(rev) is not int or not 1<=rev<=1000000:
+            raise ValueError('Revisión del gestor inválida')
+        if entry['url']!=f'https://github.com/{TRUSTED_REPO}/releases/download/v{v}/manager.py':
+            raise ValueError('Origen del gestor no autorizado')
+        if not isinstance(sha,str) or not SHA_RE.fullmatch(sha):
+            raise ValueError('SHA-256 del gestor inválido')
     return m
+
+def manager_revision_of(data):
+    tree=ast.parse(data)
+    values=[]
+    for node in tree.body:
+        if isinstance(node,ast.Assign) and any(isinstance(t,ast.Name) and t.id=='MANAGER_REVISION' for t in node.targets):
+            values.append(ast.literal_eval(node.value))
+    if len(values)!=1 or type(values[0]) is not int or not 1<=values[0]<=1000000:
+        raise ValueError('Revisión declarada del gestor inválida')
+    return values[0]
 
 def manifest(raw):
     m=json.loads(raw); version(m['version'])
@@ -197,14 +219,41 @@ class Manager:
     def set_feed(self,url):
         if url and url!=TRUSTED_FEED: raise ValueError('Solo se permite el canal oficial de JARVIS.')
         atomic_json(self.feedfile,{'url':url})
-    def check(self):
+    def signed_feed(self):
         url=self.feed()
         if not url: return None
         if url!=TRUSTED_FEED: raise ValueError('Canal no autorizado; configurá el canal oficial.')
         raw=fetch(url,MAX_MANIFEST); verify_bytes(raw,'feed.json')
-        m=validate_feed(json.loads(raw)); v=m['version']
+        return validate_feed(json.loads(raw))
+    def app_update(self,m):
+        if not m: return None
         s=self.state(); highest=s.get('highest',s.get('active'))
-        return m if not highest or version(v)>version(highest) else None
+        return m if not highest or version(m['version'])>version(highest) else None
+    def check(self):
+        return self.app_update(self.signed_feed())
+    def manager_update_available(self,m):
+        entry=(m or {}).get('manager')
+        return entry if entry and entry['revision']>MANAGER_REVISION else None
+    def update_manager_locked(self,expected):
+        """Caller holds instance_lock. Fetch authenticated metadata again after consent."""
+        entry=self.manager_update_available(self.signed_feed())
+        if not entry or entry!=expected:
+            raise ValueError('Cambió la actualización del gestor. Buscá nuevamente.')
+        target=self.store/'manager.py'
+        if self.store.is_symlink() or target.is_symlink() or not target.is_file():
+            raise ValueError('Gestor instalado no válido')
+        old=target.read_bytes()
+        if manager_revision_of(old)!=MANAGER_REVISION:
+            raise ValueError('El gestor cambió; cerrá y volvé a abrir JARVIS.')
+        self.verified(self.state()['active'])
+        data=fetch(entry['url'],MAX_FILE)
+        if digest(data)!=entry['sha256']:
+            raise ValueError('SHA-256 del gestor no coincide')
+        verify_bytes(data,'manager.py')
+        compile(data,'manager.py','exec')
+        if manager_revision_of(data)!=entry['revision']:
+            raise ValueError('Revisión del gestor no coincide')
+        return replace_manager_locked(self.store,target,old,data)
     def download(self,m):
         validate_feed(m)
         data=fetch(m['url'],MAX_ZIP)
@@ -248,30 +297,35 @@ def migrate_manager(root,source):
             with Path(source).open('rb') as f: data=f.read(MAX_FILE+1)
             if len(data)>MAX_FILE: raise ValueError('Gestor demasiado grande')
             p.write_bytes(data); verify_artifact(p); compile(data,str(p),'exec')
-            old=target.read_bytes()
-            if old==data: return False
-            backup=store/('manager-backup-'+digest(old)+'.py')
-            if backup.exists():
-                if backup.is_symlink() or backup.read_bytes()!=old: raise ValueError('Respaldo inconsistente')
-            else:
-                with backup.open('xb') as f:
-                    f.write(old); f.flush(); os.fsync(f.fileno())
-            fd,tmp=tempfile.mkstemp(prefix='.manager-',dir=store)
-            try:
-                with os.fdopen(fd,'wb') as f:
-                    f.write(data); f.flush(); os.fsync(f.fileno())
-                os.replace(tmp,target)
-            finally:
-                if os.path.exists(tmp): os.unlink(tmp)
-            return True
+            return replace_manager_locked(store,target,target.read_bytes(),data)
+
+def replace_manager_locked(store,target,old,data):
+    """Caller holds OS lock; never execute candidate or modify user state."""
+    if target.is_symlink() or target.read_bytes()!=old:
+        raise ValueError('El gestor instalado cambió')
+    if old==data: return False
+    backup=store/('manager-backup-'+digest(old)+'.py')
+    if backup.exists():
+        if backup.is_symlink() or backup.read_bytes()!=old: raise ValueError('Respaldo inconsistente')
+    else:
+        with backup.open('xb') as f:
+            f.write(old); f.flush(); os.fsync(f.fileno())
+    fd,tmp=tempfile.mkstemp(prefix='.manager-',dir=store)
+    try:
+        with os.fdopen(fd,'wb') as f:
+            f.write(data); f.flush(); os.fsync(f.fileno())
+        os.replace(tmp,target)
+    finally:
+        if os.path.exists(tmp): os.unlink(tmp)
+    return True
 
 def ui(m, startup=False):
     import tkinter as tk
     from tkinter import ttk,messagebox,filedialog,simpledialog
     root=tk.Tk(); root.title('JARVIS · Actualizaciones'); root.geometry('600x300'); root.resizable(False,False); result={'launch':False}
-    status=tk.StringVar(); busy=False
+    status=tk.StringVar(); busy=False; manager_changed=False
     def refresh():
-        s=m.state(); status.set(f"Versión activa: {s['active']}\nVersión anterior: {s['previous'] or 'ninguna administrada'}\nCanal: {'configurado' if m.feed() else 'sin configurar (ZIP local disponible)'}")
+        s=m.state(); status.set(f"Versión activa: {s['active']}\nVersión anterior: {s['previous'] or 'ninguna administrada'}\nCanal: {'configurado' if m.feed() else 'sin configurar (ZIP local disponible)'}\nGestor: revisión {MANAGER_REVISION}"+(' · actualización al próximo inicio' if manager_changed else ''))
     def run(fn):
         nonlocal busy
         if busy:return
@@ -282,11 +336,27 @@ def ui(m, startup=False):
     def install():
         p=filedialog.askopenfilename(parent=root,filetypes=[('Paquete JARVIS','*.zip')]);
         if p and messagebox.askyesno('Instalar','¿Confiás en el origen de este paquete? Solo se actualizará el programa.',parent=root): messagebox.showinfo('Actualizado','Versión instalada: '+m.install_local(p),parent=root)
+    def check_updates(interactive):
+        nonlocal manager_changed
+        if not m.feed():
+            if interactive: messagebox.showinfo('Canal','Todavía no hay un canal publicado. Configuralo o instalá un ZIP.',parent=root)
+            return
+        signed=m.signed_feed()
+        new=m.app_update(signed)
+        entry=None if manager_changed else m.manager_update_available(signed)
+        if not new and not entry and interactive:
+            messagebox.showinfo('Canal','No hay una versión más reciente.',parent=root)
+        if new and messagebox.askyesno('Actualización',f"Disponible V{new['version']}. ¿Descargar e instalar desde el canal configurado?",parent=root):
+            installed=m.download(new)
+            if interactive: messagebox.showinfo('Actualizado','Versión instalada: '+installed,parent=root)
+        if entry and messagebox.askyesno('Actualizar gestor',f"Disponible revisión {entry['revision']} del gestor. ¿Verificar e instalar? Se conserva un respaldo y se aplica al próximo inicio.",parent=root):
+            try:
+                manager_changed=m.update_manager_locked(entry)
+                if manager_changed: messagebox.showinfo('Gestor actualizado','Respaldo conservado. El nuevo gestor se utilizará al próximo inicio.',parent=root)
+            except Exception as e:
+                messagebox.showwarning('Gestor sin actualizar',str(e),parent=root)
     def check():
-        if not m.feed(): messagebox.showinfo('Canal','Todavía no hay un canal publicado. Configuralo o instalá un ZIP.',parent=root); return
-        new=m.check()
-        if new is None: messagebox.showinfo('Canal','No hay una versión más reciente.',parent=root); return
-        if messagebox.askyesno('Actualización',f"Disponible V{new['version']}. ¿Descargar e instalar desde el canal configurado?",parent=root): messagebox.showinfo('Actualizado','Versión instalada: '+m.download(new),parent=root)
+        check_updates(True)
     def configure():
         url=simpledialog.askstring('Canal HTTPS','Canal oficial de JARVIS. Vacío para desactivar.',initialvalue=m.feed() or TRUSTED_FEED,parent=root)
         if url is not None: m.set_feed(url.strip())
@@ -311,8 +381,7 @@ def ui(m, startup=False):
             nonlocal busy
             busy=True; root.config(cursor='watch'); root.update_idletasks()
             try:
-                new=m.check()
-                if new and messagebox.askyesno('Actualización disponible',f"V{new['version']}: ¿descargar e instalar?",parent=root): m.download(new)
+                check_updates(False)
             except Exception as e: messagebox.showwarning('Canal no disponible',str(e),parent=root)
             finally: busy=False; root.config(cursor='')
             launch()

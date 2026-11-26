@@ -71,7 +71,6 @@ jobs:
       - name: Construir archivos
         run: |
           python build_release.py "$GITHUB_REPOSITORY" dist
-          cp manager.py dist/manager.py
       - name: Atestar procedencia del ZIP y manifiesto
         uses: actions/attest@v4
         with:

@@ -37,7 +37,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y xvfb xauth
       - name: Pruebas unitarias de aplicación
         working-directory: app
-        run: python -m unittest test_jarvis test_v04 test_wake041 test_core test_memory test_launcher test_diagnostics test_speech_turn test_camera_performance test_instance_focus test_shutdown test_speech_input test_whisper_input test_voice_output test_voice_followup
+        run: python -m unittest test_jarvis test_v04 test_wake041 test_core test_memory test_semantic_memory test_launcher test_diagnostics test_speech_turn test_camera_performance test_instance_focus test_shutdown test_speech_input test_whisper_input test_voice_output test_voice_followup
       - name: Banco de pruebas de activación
         working-directory: tools
         run: python -m unittest test_wake_benchmark

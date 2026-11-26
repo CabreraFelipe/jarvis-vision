@@ -16,7 +16,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: jarvis-release
+  group: jarvis-release-${{ github.ref }}
   cancel-in-progress: false
 jobs:
   tests:

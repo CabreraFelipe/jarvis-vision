@@ -108,7 +108,7 @@ def consume_focus(store):
         # Remove only this fixed signal, not the instance lock or application state.
         stamp=path.stat().st_mtime
         path.unlink()
-        return 0<=time.time()-stamp<=15
+        return -2<=time.time()-stamp<=15  # tolerate filesystem/clock granularity
     except OSError:
         return False
 

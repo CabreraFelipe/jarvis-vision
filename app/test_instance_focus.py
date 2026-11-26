@@ -1,6 +1,6 @@
 import unittest,tempfile,time,os
 from pathlib import Path
-from unittest.mock import Mock
+from unittest.mock import Mock,patch
 from instance_focus import poll_focus
 
 class FocusTests(unittest.TestCase):
@@ -13,6 +13,18 @@ class FocusTests(unittest.TestCase):
             root=Mock();self.assertTrue(poll_focus(root,store))
             root.deiconify.assert_called_once();root.lift.assert_called_once();root.focus_set.assert_called_once()
             self.assertFalse(signal.exists());self.assertFalse(poll_focus(root,store))
+    def test_small_future_timestamp(self):
+        with tempfile.TemporaryDirectory() as d:
+            store=Path(d); signal=store/'focus-request.json';signal.write_text('{}')
+            stamp=signal.stat().st_mtime
+            with patch('instance_focus.time.time',return_value=stamp-.05):
+                self.assertTrue(poll_focus(Mock(),store))
+    def test_far_future_timestamp(self):
+        with tempfile.TemporaryDirectory() as d:
+            store=Path(d); signal=store/'focus-request.json';signal.write_text('{}')
+            stamp=signal.stat().st_mtime
+            with patch('instance_focus.time.time',return_value=stamp-30):
+                self.assertFalse(poll_focus(Mock(),store))
     def test_old_signal(self):
         with tempfile.TemporaryDirectory() as d:
             store=Path(d); signal=store/'focus-request.json';signal.write_text('{}')

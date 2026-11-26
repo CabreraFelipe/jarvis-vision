@@ -9,7 +9,7 @@ def poll_focus(root,store):
         path.unlink()
     except OSError:
         return False
-    if not 0<=time.time()-stamp<=15: return False
+    if not -2<=time.time()-stamp<=15: return False  # tolerate filesystem/clock granularity
     try:
         root.deiconify(); root.lift(); root.focus_set()
     except tk.TclError:

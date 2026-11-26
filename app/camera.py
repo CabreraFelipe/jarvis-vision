@@ -5,7 +5,7 @@ import time
 from pathlib import Path
 import cv2
 
-MODES = {'Automática': None, 'Auto fluidez': None, 'Auto calidad': None, 'Compatibilidad': None, '1920x1080': (1920,1080), '1280x720': (1280,720), '640x480': (640,480), 'Predeterminada': None}
+MODES = {'Automática': None, 'Auto fluidez': None, 'Auto calidad': None, 'Compatibilidad': None, 'Inicio rápido': None, '1920x1080': (1920,1080), '1280x720': (1280,720), '640x480': (640,480), 'Predeterminada': None}
 FORMATS = ('Automático','MJPG','YUY2')
 FPS = (15,30,60)
 BACKENDS=('Automático','DirectShow','Media Foundation')
@@ -175,8 +175,8 @@ def open_performance_camera(config, stop=None):
 def open_camera(config,stop=None):
     """Retain fast webcam negotiation; restore the old path for fragile USB cameras."""
     profile=config['resolution']
-    if profile=='Compatibilidad':
-        return open_compatible_camera(config,stop)
+    if profile in ('Compatibilidad','Inicio rápido'):
+        return open_compatible_camera(dict(config,resolution='Compatibilidad' if profile=='Compatibilidad' else 'Predeterminada'),stop)
     try: return open_performance_camera(config,stop)
     except RuntimeError:
         if stop is not None and stop.is_set(): raise

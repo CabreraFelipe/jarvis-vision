@@ -13,6 +13,8 @@ from PIL import Image,ImageTk
 from camera import Capture, MODES, FORMATS, FPS, BACKENDS, load_config, save_config
 from vision import ask_vision
 import voice
+import speech_input
+from speech_input_ui import open_speech_input
 from instance_focus import poll_focus
 from shutdown import Shutdown
 from assistant_core import AssistantCore
@@ -118,7 +120,8 @@ class Slot:
 class App:
     def __init__(self,root,index=None):
         self.root=root; self.closed=False; self.shutdown=Shutdown(); self.exit_guard=False; self.tick_id=None; self.results=queue.Queue(); self.ask_busy=False; self.detect_busy=False; self.detector=None; self.detection_on=False; self.detect_epoch=0; self.last_detection=0; self.listen_busy=False; self.speak_busy=False; self.stop_voice=threading.Event(); self.core=AssistantCore(ask_vision); self.conversation=self.core.conversation; self.wake_enabled=False; self.voice_epoch=0; self.pending_speech=None
-        self.memory=Memory(CONFIG.parent/'jarvis_memory.sqlite3'); self.memory_window=None; self.diagnostics_window=None
+        self.memory=Memory(CONFIG.parent/'jarvis_memory.sqlite3'); self.memory_window=None; self.diagnostics_window=None; self.speech_input_window=None
+        self.speech_path=CONFIG.parent/'speech_input.json';self.speech_settings=speech_input.load(self.speech_path)
         a,b,self.profiles=load_config(CONFIG)
         if index is not None: a=dict(self.profiles.get(str(index),a)); a['index']=index
         if b['index']==a['index']: b=dict(b,index=1 if a['index']!=1 else 0)
@@ -129,6 +132,7 @@ class App:
         ttk.Button(top,text='Memoria y personalidad',command=self.show_memory).pack(side='right',padx=6)
         menu=tk.Menu(root); tools=tk.Menu(menu,tearoff=False)
         tools.add_command(label='Diagnóstico de JARVIS',command=self.show_diagnostics)
+        tools.add_command(label='Micrófono y reconocimiento',command=self.show_speech_input)
         if os.name=='nt' and os.environ.get('JARVIS_MANAGED')=='1':
             tools.add_command(label='Crear acceso directo de JARVIS',command=self.make_shortcut)
         menu.add_cascade(label='Herramientas',menu=tools); root.configure(menu=menu)
@@ -156,6 +160,14 @@ class App:
         ttk.Label(side,text='Ollama local · imágenes solo a pedido. Voz continua solo si la activás.',wraplength=290).pack(fill='x')
         self.answer=tk.Text(side,wrap='word',height=8,width=30,font=('Segoe UI',10)); self.answer.pack(fill='both',expand=True); self.write('Conectá una cámara. Para preguntas instalá Ollama y gemma3:4b. Para voz, ver VOZ.txt.')
         self.slots[0].connect(); self.tick_id=self.root.after(15,self.tick)
+    def show_speech_input(self):
+        if self.speech_input_window is not None and self.speech_input_window.winfo_exists():
+            self.speech_input_window.lift();return
+        def apply(settings):
+            speech_input.save(self.speech_path,settings);self.speech_settings=settings
+        try:self.speech_input_window=open_speech_input(self.root,CONFIG.parent,self.speech_settings,apply,
+            lambda settings:self.listen(test_settings=settings),lambda:self.listen_busy or self.speak_busy or self.ask_busy or self.wake_enabled)
+        except Exception as e:messagebox.showerror('Micrófono',str(e),parent=self.root)
     def show_diagnostics(self):
         if self.diagnostics_window is not None and self.diagnostics_window.winfo_exists():
             self.diagnostics_window.lift(); return
@@ -226,21 +238,25 @@ class App:
         self.wake_enabled=True; self.bare_check.configure(state='disabled'); self.auto_speak.set(True); self.wbutton.configure(text='Desactivar «Hola, JARVIS»'); self.vstatus.set('Activación habilitada; preparando micrófono…')
     def update_voice_button(self):
         self.vbutton.configure(text='Hablar (hasta 12 s)' if self.natural_turn.get() else 'Hablar (6 s)')
-    def listen(self, wake=False):
+    def listen(self, wake=False, test_settings=None):
         if self.listen_busy or self.speak_busy or self.ask_busy: return
         if not wake and self.wake_enabled: return
         self.listen_busy=True; self.stop_voice.clear(); self.voice_epoch+=1; epoch=self.voice_epoch; self.vbutton.configure(state='disabled'); self.vstatus.set('Preparando micrófono…')
-        natural=self.natural_turn.get() and not wake
+        testing=test_settings is not None
+        selected=dict(test_settings if testing else self.speech_settings)
+        options={'settings':selected,'base':CONFIG.parent} if selected!=speech_input.DEFAULT or testing else {}
+        natural=self.natural_turn.get() and not wake and not testing
         bare=self.bare_wake.get() and wake
         def work():
             try:
                 if wake:
-                    options={'allow_bare':True} if bare else {}
-                    text=voice.listen_wake(self.stop_voice,on_state=lambda state:self.results.put(('mic_state',epoch,state)),**options)
-                elif natural: text=voice.listen(self.stop_voice,seconds=12,end_on_phrase=True,on_ready=lambda:self.results.put(('mic_state',epoch,'Micrófono activo: hablá y hacé una pausa al terminar (máx. 12 s).')))
-                else: text=voice.listen(self.stop_voice,on_ready=lambda:self.results.put(('mic_state',epoch,'Micrófono activo: hablá ahora (6 segundos).')))
-                self.results.put(('voice',epoch,wake,text,None))
-            except Exception as e: self.results.put(('voice',epoch,wake,'',str(e)))
+                    wake_options=dict(options)
+                    if bare:wake_options['allow_bare']=True
+                    text=voice.listen_wake(self.stop_voice,on_state=lambda state:self.results.put(('mic_state',epoch,state)),**wake_options)
+                elif natural: text=voice.listen(self.stop_voice,seconds=12,end_on_phrase=True,on_ready=lambda:self.results.put(('mic_state',epoch,'Micrófono activo: hablá y hacé una pausa al terminar (máx. 12 s).')),**options)
+                else: text=voice.listen(self.stop_voice,on_ready=lambda:self.results.put(('mic_state',epoch,'Micrófono activo: hablá ahora (6 segundos).')),**options)
+                self.results.put(('voice_test' if testing else 'voice',epoch,wake,text,None))
+            except Exception as e: self.results.put(('voice_test' if testing else 'voice',epoch,wake,'',str(e)))
         self.shutdown.start(work)
     def speak(self,text):
         if self.speak_busy or self.listen_busy: return
@@ -286,7 +302,7 @@ class App:
             elif kind=='mic_state':
                 epoch,state=r
                 if epoch==self.voice_epoch and not self.stop_voice.is_set(): self.vstatus.set(state)
-            elif kind=='voice':
+            elif kind in ('voice','voice_test'):
                 self.listen_busy=False; self.vbutton.configure(state='normal'); epoch,wake,text,error=r
                 if epoch!=self.voice_epoch or self.stop_voice.is_set(): continue
                 if error:
@@ -294,7 +310,8 @@ class App:
                     self.vstatus.set('Error de voz: '+error)
                 elif text:
                     self.question.delete(0,'end'); self.question.insert(0,text); self.vstatus.set('Pregunta reconocida.')
-                    if wake or self.auto_ask.get(): self.ask()
+                    if kind=='voice_test':self.vstatus.set('Prueba de micrófono: transcripción lista, sin consulta a IA.')
+                    elif wake or self.auto_ask.get(): self.ask()
                 else: self.vstatus.set('No se reconoció voz. Probá nuevamente.')
             elif kind=='spoken': self.speak_busy=False; self.vstatus.set('Error de voz: '+r[0] if r[0] else 'Respuesta leída')
         if self.pending_speech is not None and not (self.listen_busy or self.speak_busy):

@@ -33,7 +33,7 @@ class ReleaseTests(unittest.TestCase):
                     manifest['files'][name]=hashlib.sha256(data).hexdigest();old.writestr('app/'+name,data)
                 old.writestr('release.json',json.dumps(manifest))
             m.install(prior)
-            markers={'camera_config.json':b'preferences','modelos/model.bin':b'voice','capturas/photo.jpg':b'photo','yolo11n.pt':b'weights','jarvis_memory.sqlite3':b'local memory bytes'}
+            markers={'camera_config.json':b'preferences','modelos/model.bin':b'voice','capturas/photo.jpg':b'photo','yolo11n.pt':b'weights','jarvis_memory.sqlite3':b'local memory bytes','speech_input.json':b'input prefs'}
             for name,data in markers.items():
                 p=m.root/name;p.parent.mkdir(parents=True,exist_ok=True);p.write_bytes(data)
             with patch('manager.fetch',return_value=pkg.read_bytes()):self.assertEqual(m.download(feed),current)

@@ -32,3 +32,7 @@ El usuario informó «Gestor actualizado. Respaldo conservado.» después de ver
 
 ## Entrega acumulativa V0.5.0
 El usuario confirmó detección automática de la actualización mediante JARVIS.bat. No hay confirmación explícita de la instalación de V0.4.4. V0.5.0 se publica solo si CI y atestaciones pasan. El gestor nuevo se distribuye como asset autenticado separado y no se sustituye por la actualización de aplicación. Los datos de memoria local se añaden a la regresión de actualización y restauración.
+
+
+## Recuperación de instancia (candidato posterior a V0.5.1)
+Se conserva el bloqueo exclusivo del sistema operativo. En un segundo inicio normal, el gestor candidato escribe una señal fija local de foco, sin comandos ni datos sensibles. La ventana del gestor o aplicación candidata consume la señal, con expiración de 15 segundos, e intenta deiconify/lift/focus_set. Windows puede impedir el foco por sus políticas; no se fuerza ni se cierra ningún proceso. Abrir ACTUALIZACIONES con una sesión activa sigue mostrando una indicación para cerrarla. No se libera el lock de otra instancia. No se modifica una instalación antigua automáticamente. Requiere nueva app y migración autenticada del gestor; probar segundo clic durante ventana abierta/minimizada y cierre, además de CI. La señal es de mejor esfuerzo, no confirma foco real.

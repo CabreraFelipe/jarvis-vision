@@ -9,6 +9,29 @@ class SecurityTests(unittest.TestCase):
         d=tempfile.TemporaryDirectory(); self.addCleanup(d.cleanup)
         self.root=Path(d.name); self.pkg,self.feed=build(TRUSTED_REPO,self.root/'dist')
         self.m=Manager(self.root/'user'); self.m.set_feed(TRUSTED_FEED)
+    def test_instance_contention_does_not_unlock(self):
+        from manager import instance_lock,InstanceBusy,request_focus,consume_focus
+        with instance_lock(self.m.store):
+            with self.assertRaises(InstanceBusy):
+                with instance_lock(self.m.store): pass
+            self.assertTrue(request_focus(self.m.store))
+            self.assertTrue(consume_focus(self.m.store))
+            self.assertFalse(consume_focus(self.m.store))
+            with self.assertRaises(InstanceBusy):
+                with instance_lock(self.m.store): pass
+        with instance_lock(self.m.store): pass
+    def test_expired_focus_signal(self):
+        import os,time
+        from manager import request_focus,consume_focus
+        self.assertTrue(request_focus(self.m.store))
+        p=self.m.store/'focus-request.json'; old=time.time()-30
+        os.utime(p,(old,old))
+        self.assertFalse(consume_focus(self.m.store));self.assertFalse(p.exists())
+    def test_focus_only_changes_signal(self):
+        from manager import request_focus,consume_focus
+        self.m.install(self.pkg); before=self.m.statefile.read_bytes()
+        self.assertTrue(request_focus(self.m.store));self.assertTrue(consume_focus(self.m.store))
+        self.assertEqual(self.m.statefile.read_bytes(),before)
     def test_reject_wrong_feed(self):
         with self.assertRaises(ValueError): self.m.set_feed('https://example.com/feed.json')
         self.assertEqual(self.m.feed(),TRUSTED_FEED)

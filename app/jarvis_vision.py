@@ -13,6 +13,7 @@ from PIL import Image,ImageTk
 from camera import Capture, MODES, FORMATS, FPS, BACKENDS, load_config, save_config
 from vision import ask_vision
 import voice
+from instance_focus import poll_focus
 from assistant_core import AssistantCore
 from memory import Memory
 from memory_ui import open_memory
@@ -257,6 +258,11 @@ class App:
         except Exception as e: messagebox.showerror('Error',str(e))
     def tick(self):
         if self.closed: return
+        if os.environ.get('JARVIS_MANAGED')=='1':
+            now=time.monotonic()
+            if now-getattr(self,'last_focus_poll',0.)>=.25:
+                self.last_focus_poll=now
+                poll_focus(self.root,BASE/'.jarvis')
         for s in self.slots: s.poll()
         while True:
             try: result=self.results.get_nowait()

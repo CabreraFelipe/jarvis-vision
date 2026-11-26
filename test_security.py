@@ -42,6 +42,11 @@ class SecurityTests(unittest.TestCase):
     def test_cli_success(self):
         with patch('manager.shutil.which',return_value=str(self.root/'gh')), patch('manager.subprocess.run',side_effect=[subprocess.CompletedProcess([],0,stdout=b'gh version 2.102.0 (2026-09-30)'),subprocess.CompletedProcess([],0)]):
             verify_artifact(self.pkg)
+    def test_quiet_process_options(self):
+        import os
+        from manager import quiet_process_options
+        expected={'creationflags':subprocess.CREATE_NO_WINDOW} if os.name=='nt' else {}
+        self.assertEqual(quiet_process_options(),expected)
     def test_outdated_cli(self):
         with patch('manager.shutil.which',return_value=str(self.root/'gh')), patch('manager.subprocess.run',return_value=subprocess.CompletedProcess([],0,stdout=b'gh version 2.101.0 (2026-09-29)')) as run:
             with self.assertRaisesRegex(ValueError,'2.102.0'): verify_artifact(self.pkg)

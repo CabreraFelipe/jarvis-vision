@@ -37,7 +37,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y xvfb xauth
       - name: Pruebas unitarias de aplicación
         working-directory: app
-        run: python -m unittest test_jarvis test_v04 test_wake041 test_core test_memory
+        run: python -m unittest test_jarvis test_v04 test_wake041 test_core test_memory test_launcher test_diagnostics
       - name: Pruebas del canal
         run: python -m unittest test_release test_security
       - name: Interfaz simulada Linux

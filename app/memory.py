@@ -1,5 +1,7 @@
 """Explicit local preferences and memories; no automatic transcript storage."""
 import sqlite3
+import re
+import unicodedata
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -7,6 +9,20 @@ STYLES=('Normal','Conciso','Detallado','Conversacional')
 MAX_ITEMS=100
 MAX_NOTE=300
 MAX_CONTEXT=1800
+
+STOP_WORDS=set('a al algo como con cual cuando de del donde el en es esta esto la las lo los me mi mis o para por que se si sin su te tu un una y yo jarvis'.split())
+
+def normalize(text):
+    return ''.join(c for c in unicodedata.normalize('NFD',text.casefold()) if not unicodedata.combining(c))
+
+def tokens(text):
+    return {t for t in re.findall(r'\w+',normalize(text)) if len(t)>1 and t not in STOP_WORDS}
+
+def relevant(rows,question):
+    """Rank by exact normalized token overlap, then recency. No unrelated fallback."""
+    terms=tokens(question)
+    ranked=[(len(terms & tokens(text)),i,text) for i,text in rows]
+    return [(i,text) for score,i,text in sorted(ranked,reverse=True) if score]
 
 class Memory:
     def __init__(self,path):
@@ -43,19 +59,34 @@ class Memory:
     def items(self):
         if not self.path.exists(): return []
         with self.db() as con: return con.execute('SELECT id,text FROM notes ORDER BY id DESC').fetchall()
+    def search(self,query):
+        rows=self.items()
+        if not query.strip(): return rows
+        term=normalize(query.strip())
+        return [(i,text) for i,text in rows if term in normalize(text)]
+    def edit(self,note_id,text):
+        text=text.strip()
+        if not text or len(text)>MAX_NOTE: raise ValueError('Escribí una nota de 1 a 300 caracteres.')
+        if not self.path.exists(): return False
+        with self.db() as con:
+            if con.execute('SELECT 1 FROM notes WHERE text=? AND id<>?',(text,note_id)).fetchone():
+                raise ValueError('Ya existe ese recuerdo.')
+            return con.execute('UPDATE notes SET text=? WHERE id=?',(text,note_id)).rowcount==1
     def remove(self,note_id):
         if not self.path.exists(): return
         with self.db() as con: con.execute('DELETE FROM notes WHERE id=?',(note_id,))
     def clear(self):
         if not self.path.exists(): return
         with self.db() as con: con.execute('DELETE FROM notes')
-    def snapshot(self):
+    def snapshot(self,question=None):
         if not self.path.exists(): return 'Normal',()
         with self.db() as con:
             enabled,style=con.execute('SELECT enabled,style FROM settings WHERE id=1').fetchone()
             notes=[]; total=0
             if enabled:
-                for text, in con.execute('SELECT text FROM notes ORDER BY id DESC'):
-                    if total+len(text)>MAX_CONTEXT: break
+                rows=con.execute('SELECT id,text FROM notes ORDER BY id DESC').fetchall()
+                if question is not None: rows=relevant(rows,question)
+                for _,text in rows:
+                    if total+len(text)>MAX_CONTEXT: continue
                     notes.append(text); total+=len(text)
             return style if style in STYLES else 'Normal',tuple(notes)

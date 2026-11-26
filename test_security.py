@@ -81,7 +81,9 @@ class SecurityTests(unittest.TestCase):
         self.assertFalse((self.root/'.jarvis').exists())
     def test_high_water_rejects_old_feed(self):
         from manager import atomic_json
-        atomic_json(self.m.statefile,{'active':'0.4.2','previous':None,'highest':'0.4.4'})
+        parts=list(map(int,self.feed['version'].split('.')))
+        highest='.'.join(map(str,[parts[0],parts[1],parts[2]+1]))
+        atomic_json(self.m.statefile,{'active':self.feed['version'],'previous':None,'highest':highest})
         with patch('manager.fetch',return_value=json.dumps(self.feed).encode()),patch('manager.verify_artifact'):
             self.assertIsNone(self.m.check())
         with self.assertRaises(ValueError): self.m.install(self.pkg)

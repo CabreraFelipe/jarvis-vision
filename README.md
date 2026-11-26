@@ -1,32 +1,24 @@
-# JARVIS Vision — V0.4.3
+# JARVIS Vision — V0.4.4
 
-Repositorio independiente para la distribución de JARVIS. La aplicación es idéntica a V0.4.2 excepto por su versión visible, para comprobar la actualización remota sin introducir cambios funcionales.
+Primera versión de aplicación destinada a comprobar el canal autenticado con el gestor seguro. Incluye AssistantCore modular, conserva cámaras, YOLO, Ollama, Vosk, activación por voz y contexto de sesión. Sin nuevas dependencias de aplicación.
 
-## Publicación
+## Actualizaciones
 
-1. Crear `CabreraFelipe/jarvis-vision` y dar acceso al conector GitHub. El canal del actualizador V0.4.2 requiere assets públicamente accesibles por HTTPS; si se prefiere un repositorio privado habrá que adaptar el mecanismo antes de publicar. No incluir archivos personales, credenciales, configuraciones, capturas ni modelos.
-2. Subir los archivos fuente de este paquete a `main`, incluyendo `.github/workflows/release.yml`. No subir el ZIP de distribución como código fuente.
-3. El workflow **Validar y publicar JARVIS** se inicia automáticamente con cambios de código o versión en `main`. También admite ejecución manual de recuperación. La publicación queda bloqueada hasta pasar las pruebas en Linux y Windows (hardware y modelos simulados). Las releases existentes nunca se sobrescriben.
-4. Comprobar la release, sus dos assets y el SHA-256 anunciado. El gestor V0.4.2 admite el canal `https://github.com/CabreraFelipe/jarvis-vision/releases/latest/download/feed.json`.
-5. En el PC, abrir el gestor, configurar ese canal, buscar actualizaciones, aceptar V0.4.3 y comprobar que se conservan cámaras, voz, preferencias y datos. Probar restauración V0.4.2 y vuelta a V0.4.3.
+Canal oficial: https://github.com/CabreraFelipe/jarvis-vision/releases/latest/download/feed.json
 
-## Seguridad y límites
+El workflow valida Windows y Linux, genera los artefactos y verifica sus atestaciones antes de publicar. Las releases existentes no se sobrescriben. El gestor seguro requiere GitHub CLI >= 2.102.0 y una cuenta autenticada; verifica feed y ZIP, limita el repositorio y workflow, y pide consentimiento local. Migración del gestor inicial documentada en docs/UPDATE_SECURITY.md.
 
-El protocolo 1 verifica SHA-256 e integridad de archivos y exige confirmación local, pero aún no proporciona autenticación criptográfica independiente de GitHub. Proteger la cuenta con 2FA y no configurar fuentes de confianza desconocida. No se ha habilitado ninguna instalación desatendida. La firma de actualizaciones se abordará antes de ampliar el canal de distribución.
+## Estado y límites
 
-## Pruebas locales
+El usuario confirmó el éxito de la migración local del gestor y conservación de respaldo el 26/11/2026. Descarga, instalación y funcionamiento físico de V0.4.4 mediante el nuevo canal aún pendientes. Las pruebas CI simulan dispositivos. No hay actualización automática del gestor ni garantía TUF completa. No almacenar datos de usuario, modelos, capturas ni credenciales en el repositorio. No integrar Asia 2027.
 
-```sh
-python -m pip install numpy opencv-python-headless Pillow
-python -m unittest test_release
-cd app
-python -m unittest test_jarvis test_v04 test_wake041
-python test_ui.py
-python test_voice_ui.py
-```
+## Pruebas
 
-En Linux, ejecutar los dos scripts de interfaz con `xvfb-run -a`. Las pruebas locales en Linux no sustituyen las de Windows ni la comprobación física del PC.
+- En la raíz: `python -m unittest test_release test_security`.
+- En app: `python -m unittest test_jarvis test_v04 test_wake041 test_core`.
+- UI: `python test_ui.py` y `python test_voice_ui.py` (Linux con Xvfb).
+- Próxima prueba física: comprobar versión visible, cámaras, voz y restauración/reaplicación mediante botón Restaurar. No reinstalar ni borrar datos.
 
-## Política de desarrollo
+## Desarrollo
 
-JARVIS se desarrolla de forma independiente, con autonomía para cambios de código, commits, pruebas y publicación de versiones validadas. Mantener la instalación local bajo confirmación del usuario, proteger datos personales y credenciales, y no integrar Asia 2027 sin solicitud expresa. Las pruebas de hardware real siguen siendo necesarias cuando corresponda.
+Autonomía para cambios, commits y releases validadas, con consentimiento local para instalar. Evaluación externa y arquitectura en docs. No se incorporó Pipecat ni memoria persistente todavía.

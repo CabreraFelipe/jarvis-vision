@@ -25,3 +25,7 @@ El gestor sigue sin automigrar: se añadirá como artefacto atestado independien
 ## Migración inicial y versión mínima del verificador
 
 Se exige gh >= 2.102.0 por GHSA-wjmr-j3rp-mh2g y GHSA-4mq3-hpgx-9cx8. El workflow se fija incluyendo @refs/heads/main. El gestor candidato implementa --migrate con ruta explícita a la instalación, bloqueo de instancia, verificación del gestor descargado, respaldo identificado por SHA-256 y reemplazo atómico. No altera datos ni estado. El bootstrap se publica como prerelease independiente y no cambia el canal latest. Verificar el archivo externamente con gh antes de ejecutarlo; la autoverificación no sustituye ese paso. La actualización automática del gestor futuro todavía no está implementada. La validación de hardware y migración real se mantiene pendiente.
+
+## Confirmación de bootstrap y versión de prueba — 26/11/2026
+
+El usuario informó «Gestor actualizado. Respaldo conservado.» después de verificar y ejecutar el bootstrap. Se prepara V0.4.4 con el núcleo modular validado para comprobar la actualización autenticada real. No equivale a haber instalado V0.4.4 ni a validar sus cámaras/micrófono. El gestor inicial no se autoactualiza. Antes de avanzar en publicación funcional amplia, probar descarga, arranque, restauración y retorno a V0.4.4 desde el botón Restaurar.

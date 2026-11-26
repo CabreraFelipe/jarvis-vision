@@ -15,7 +15,7 @@ from vision import ask_vision
 import voice
 from assistant_core import AssistantCore
 
-VERSION='0.4.3'
+VERSION='0.4.4'
 UPDATE_EXIT=42
 BASE=Path(os.environ.get("JARVIS_DATA_DIR",str(Path(__file__).resolve().parent))).resolve()
 CONFIG=BASE/'camera_config.json'

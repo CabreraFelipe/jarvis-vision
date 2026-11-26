@@ -20,7 +20,7 @@ from memory_ui import open_memory
 from windows_launcher import create_shortcut
 from diagnostics_ui import open_diagnostics
 
-VERSION='0.5.1'
+VERSION='0.5.2'
 UPDATE_EXIT=42
 BASE=Path(os.environ.get("JARVIS_DATA_DIR",str(Path(__file__).resolve().parent))).resolve()
 CONFIG=BASE/'camera_config.json'

@@ -1,3 +1,17 @@
+V0.5.2 — estabilidad y gestor de actualizaciones
+=================================================
+Actualización normal: abrir el acceso directo administrado y aceptar V0.5.2.
+Conservar las configuraciones funcionales de cámaras de V0.5.1.
+Modo Compatibilidad opcional; no cambia el método de captura normal de ambas.
+El gestor revisión 1 incorpora recuperación de instancia y autoactualización
+autenticada. El gestor anterior NO se reemplaza con el ZIP de la aplicación.
+Para activar estas funciones se requiere una última migración autenticada
+del asset manager.py de esta release (ver docs/UPDATE_SECURITY.md).
+La app y el gestor tienen verificaciones separadas. El gestor nuevo conserva
+un respaldo y aplica futuras revisiones al siguiente arranque, previa aceptación.
+No borrar configuraciones, modelos, memoria, capturas ni versiones anteriores.
+Validación física pendiente: apertura doble, actualizaciones, cámaras y voz.
+
 V0.5.1 — rendimiento de cámaras
 ================================
 Abrí mediante el gestor o acceso directo y aceptá la actualización. No reinstales.

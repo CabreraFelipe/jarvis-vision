@@ -1,13 +1,15 @@
-# JARVIS Vision — V0.5.1
+# JARVIS Vision — V0.5.2
 
-Corrección de cámaras: selección de modos por FPS medidos, controladores configurables y vista previa optimizada. Validación simulada de PR7 completada; la prueba física de Redragon sigue pendiente. Se conservan las funciones de V0.5.0.
+V0.5.2: compatibilidad USB opcional, recuperación cooperativa de instancia y gestor revisión 1 con autoactualización autenticada. La última migración del gestor requiere verificación externa y consentimiento. Ambas cámaras confirmadas funcionales por el usuario en V0.5.1; FPS exactos no informados. CI integrada superada antes del incremento de versión; CI de publicación y pruebas físicas de V0.5.2 pendientes.
+
+Corrección de cámaras anterior: selección de modos por FPS medidos, controladores configurables y vista previa optimizada. Validación simulada de PR7 completada; la prueba física de Redragon sigue pendiente. Se conservan las funciones de V0.5.0.
 
 Entrega acumulativa anterior: memoria local explícita y selectiva, personalidad, diagnóstico, acceso directo Windows y reconocimiento de voz mejorado. Mantiene cámaras, YOLO, Ollama, Vosk, modo fijo de seis segundos, activación por voz y contexto de sesión. Sin dependencias obligatorias nuevas.
 
 ## Actualizaciones
 Canal oficial: https://github.com/CabreraFelipe/jarvis-vision/releases/latest/download/feed.json
 
-GitHub valida Windows y Linux, genera y verifica atestaciones de los artefactos antes de publicar. No sobrescribe releases. El gestor instalado verifica feed y ZIP mediante GitHub CLI >=2.102.0. La instalación exige consentimiento local. Abrir mediante JARVIS.bat o el acceso directo al gestor, nunca mediante INICIAR.bat si se quiere comprobar actualizaciones. El gestor de V0.5.0 incorpora ocultación de consolas auxiliares, pero no se reemplaza automáticamente: requiere migración independiente autenticada. No eliminar el respaldo.
+GitHub valida Windows y Linux, genera y verifica atestaciones de los artefactos antes de publicar. No sobrescribe releases. El gestor instalado verifica feed y ZIP mediante GitHub CLI >=2.102.0. La instalación exige consentimiento local. Abrir mediante JARVIS.bat o el acceso directo al gestor, nunca mediante INICIAR.bat si se quiere comprobar actualizaciones. El gestor anterior requiere una última migración autenticada al gestor revisión 1; las futuras revisiones se ofrecen desde el feed firmado con consentimiento separado. El ZIP de app no sustituye al gestor. No eliminar el respaldo.
 
 ## Privacidad y límites
 La memoria guarda únicamente notas explícitas, desactivada por defecto, en SQLite local sin cifrado de aplicación. No se graban transcripciones ni audio ni imágenes automáticamente. Recuperación por palabras, no semántica. El diagnóstico no abre dispositivos. La activación sigue dependiendo de Vosk; no es detector acústico especializado, ni identificación de hablante. Pipecat aún no integrado. No almacenar datos, capturas, modelos o credenciales en GitHub. Asia 2027 independiente.

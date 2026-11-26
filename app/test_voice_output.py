@@ -1,6 +1,6 @@
 import json,tempfile,unittest,subprocess
 from pathlib import Path
-from unittest.mock import patch,Mock
+from unittest.mock import patch,Mock,MagicMock
 import voice_output as v
 
 class VoiceOutputTests(unittest.TestCase):
@@ -47,7 +47,7 @@ class VoiceOutputTests(unittest.TestCase):
         with self.assertRaises(ValueError):v.model_info(self.base,self.name)
     def test_playback(self):
         import sys
-        sd=Mock();stream=sd.RawOutputStream.return_value.__enter__.return_value
+        sd=MagicMock();stream=sd.RawOutputStream.return_value.__enter__.return_value
         with patch.dict(sys.modules,{'sounddevice':sd}),patch('voice_output.synthesize',return_value=(b'\x00\x00',22050)):
             v.speak(self.base,{'engine':'Piper local','model':self.name},'hola')
         sd.RawOutputStream.assert_called_once_with(samplerate=22050,channels=1,dtype='int16');stream.write.assert_called_once_with(b'\x00\x00')

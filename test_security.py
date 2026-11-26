@@ -38,6 +38,79 @@ class SecurityTests(unittest.TestCase):
         self.m.install(self.pkg); before=self.m.statefile.read_bytes()
         self.assertTrue(request_focus(self.m.store));self.assertTrue(consume_focus(self.m.store))
         self.assertEqual(self.m.statefile.read_bytes(),before)
+    def manager_candidate(self):
+        from manager import MANAGER_REVISION,digest
+        self.m.install(self.pkg)
+        old=f'MANAGER_REVISION={MANAGER_REVISION}\n# current\n'.encode()
+        target=self.m.store/'manager.py';target.write_bytes(old)
+        candidate=f'MANAGER_REVISION={MANAGER_REVISION+1}\n# new\n'.encode()
+        entry=dict(self.feed['manager'],revision=MANAGER_REVISION+1,sha256=digest(candidate))
+        feed=dict(self.feed,manager=entry)
+        return target,old,candidate,entry,feed
+    def test_manager_feed_backward_compatible(self):
+        from manager import validate_feed,MANAGER_REVISION
+        old=dict(self.feed);old.pop('manager')
+        self.assertEqual(validate_feed(old),old)
+        self.assertIsNone(self.m.manager_update_available(old))
+        self.assertIsNone(self.m.manager_update_available(self.feed))
+        self.assertEqual(self.feed['manager']['revision'],MANAGER_REVISION)
+        self.assertEqual((self.root/'dist'/'manager.py').read_bytes(),Path(__file__).with_name('manager.py').read_bytes())
+    def test_manager_update_when_app_current(self):
+        from manager import instance_lock
+        target,old,data,entry,feed=self.manager_candidate()
+        state=self.m.statefile.read_bytes();channel=self.m.feedfile.read_bytes()
+        marker=self.m.root/'camera_config.json';marker.write_bytes(b'keep')
+        self.assertIsNone(self.m.app_update(feed))
+        with instance_lock(self.m.store),patch('manager.fetch',side_effect=[json.dumps(feed).encode(),data]),patch('manager.verify_artifact') as verify:
+            self.assertTrue(self.m.update_manager_locked(entry))
+        self.assertEqual(verify.call_count,2)
+        self.assertEqual(target.read_bytes(),data);self.assertEqual(self.m.statefile.read_bytes(),state)
+        self.assertEqual(self.m.feedfile.read_bytes(),channel);self.assertEqual(marker.read_bytes(),b'keep')
+        self.assertEqual([p.read_bytes() for p in self.m.store.glob('manager-backup-*.py')],[old])
+    def test_manager_invalid_url(self):
+        from manager import validate_feed
+        with self.assertRaises(ValueError):validate_feed(dict(self.feed,manager=dict(self.feed['manager'],url='https://example.com/manager.py')))
+    def test_manager_invalid_revision(self):
+        from manager import validate_feed
+        with self.assertRaises(ValueError):validate_feed(dict(self.feed,manager=dict(self.feed['manager'],revision=True)))
+    def test_manager_changed_offer(self):
+        target,old,data,entry,feed=self.manager_candidate()
+        with patch('manager.fetch',return_value=json.dumps(feed).encode()) as fetch,patch('manager.verify_artifact'):
+            with self.assertRaises(ValueError):self.m.update_manager_locked(dict(entry,revision=entry['revision']+1))
+        self.assertEqual(fetch.call_count,1);self.assertEqual(target.read_bytes(),old)
+    def test_manager_rejects_unsigned_feed(self):
+        target,old,data,entry,feed=self.manager_candidate()
+        with patch('manager.fetch',return_value=json.dumps(feed).encode()),patch('manager.verify_artifact',side_effect=ValueError('bad')):
+            with self.assertRaises(ValueError):self.m.update_manager_locked(entry)
+        self.assertEqual(target.read_bytes(),old)
+    def test_manager_rejects_corrupt_bytes(self):
+        target,old,data,entry,feed=self.manager_candidate()
+        with patch('manager.fetch',side_effect=[json.dumps(feed).encode(),b'corrupt']),patch('manager.verify_artifact') as verify:
+            with self.assertRaises(ValueError):self.m.update_manager_locked(entry)
+        self.assertEqual(verify.call_count,1);self.assertEqual(target.read_bytes(),old)
+    def test_manager_rejects_unsigned_candidate(self):
+        target,old,data,entry,feed=self.manager_candidate()
+        with patch('manager.fetch',side_effect=[json.dumps(feed).encode(),data]),patch('manager.verify_artifact',side_effect=[None,ValueError('bad')]):
+            with self.assertRaises(ValueError):self.m.update_manager_locked(entry)
+        self.assertEqual(target.read_bytes(),old)
+    def test_manager_rejects_mismatched_revision(self):
+        from manager import digest
+        target,old,data,entry,feed=self.manager_candidate()
+        entry['sha256']=digest(old)
+        with patch('manager.fetch',side_effect=[json.dumps(feed).encode(),old]),patch('manager.verify_artifact'):
+            with self.assertRaisesRegex(ValueError,'no coincide'):self.m.update_manager_locked(entry)
+        self.assertEqual(target.read_bytes(),old)
+    def test_manager_replace_failure_preserves_current(self):
+        target,old,data,entry,feed=self.manager_candidate()
+        with patch('manager.fetch',side_effect=[json.dumps(feed).encode(),data]),patch('manager.verify_artifact'),patch('manager.os.replace',side_effect=OSError('blocked')):
+            with self.assertRaises(OSError):self.m.update_manager_locked(entry)
+        self.assertEqual(target.read_bytes(),old)
+        self.assertEqual([p.read_bytes() for p in self.m.store.glob('manager-backup-*.py')],[old])
+    def test_manager_old_revision_not_offered(self):
+        target,old,data,entry,feed=self.manager_candidate()
+        with patch('manager.fetch',return_value=json.dumps(self.feed).encode()) as fetch,patch('manager.verify_artifact'):
+            with self.assertRaises(ValueError):self.m.update_manager_locked(entry)
+        self.assertEqual(fetch.call_count,1);self.assertEqual(target.read_bytes(),old)
     def test_reject_wrong_feed(self):
         with self.assertRaises(ValueError): self.m.set_feed('https://example.com/feed.json')
         self.assertEqual(self.m.feed(),TRUSTED_FEED)

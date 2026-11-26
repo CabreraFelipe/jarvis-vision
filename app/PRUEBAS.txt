@@ -1,0 +1,4 @@
+V0.4.1: 25 pruebas unitarias (test_jarvis, test_v04, test_wake041) OK.
+Prueba UI cámaras y prueba UI voz con simulaciones OK (Xvfb/Linux).
+No se ha probado con micrófono, Vosk real, Ollama real ni hardware Windows.
+La frase alternativa «Hola, asistente» está habilitada por defecto en modo wake.

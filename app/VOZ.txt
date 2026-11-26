@@ -1,0 +1,45 @@
+VOZ LOCAL (opcional)
+====================
+1. Ejecutá INSTALAR_VOZ.bat. Si falla, verificá que usás Python de 64 bits y una
+   versión compatible con los paquetes. La app visual sigue funcionando sin ellos.
+2. Visitá https://alphacephei.com/vosk/models y descargá vosk-model-small-es-0.42
+   (modelo español pequeño). Extraé la carpeta completa dentro de modelos.
+   Debe quedar: modelos\vosk-model-small-es-0.42\am\... (no doble carpeta).
+3. Verificá que Windows permita acceso al micrófono a las aplicaciones de escritorio
+   y que tu micrófono preferido sea la entrada predeterminada.
+4. Iniciá JARVIS. Pulsá Hablar (6 s) y esperá el mensaje Micrófono activo.
+   Hablá en español. Revisá la transcripción y pulsá Analizar imagen actual.
+   Opcionalmente activá Analizar automáticamente al hablar para evitar ese clic.
+5. Activá Leer respuestas en voz alta. Se usa el sintetizador instalado en Windows;
+   si no hay voz española disponible, se emplea la predeterminada. Podés agregar
+   una voz española desde la configuración de idioma de Windows.
+6. Cancelar micrófono detiene la escucha o descarta su resultado si está cargando.
+   El audio solo reside en memoria durante la transcripción, no se envía a la nube.
+   La calidad depende del micrófono, ruido y modelo. Ollama es necesario para
+   responder preguntas.
+
+ACTIVACIÓN OPCIONAL (V0.4)
+- El micrófono no se activa al iniciar. Pulsá Activar «Hola, JARVIS».
+- Decí «Hola, JARVIS, qué estás viendo» o «Hola, JARVIS», hacé una pausa y
+  luego decí tu pregunta dentro de 8 segundos. El modo Visual usa la cámara
+  seleccionada; Conversación sin cámara envía únicamente texto.
+- Vosk transcribe localmente la voz para detectar la frase. No es un detector
+  especializado: puede confundir el nombre o activarse por voces cercanas.
+- Se activa la lectura de respuestas al habilitar este modo; podés desmarcarla.
+  La escucha se pausa durante la consulta y síntesis, y vuelve al terminar.
+- Desactivar «Hola, JARVIS» o Cancelar micrófono cierra la escucha y descarta
+  comandos pendientes. No cancela una consulta o lectura ya iniciada.
+- No se graba audio en archivos. No se envía audio a un servicio externo.
+  El texto reconocido se usa para consultas locales a Ollama.
+- Para continuar, volvé a decir «Hola, JARVIS» con tu nueva pregunta.
+
+CORRECCIÓN V0.4.1
+- Activá «Hola, JARVIS» y esperá que diga que el micrófono está activo.
+- Decí «Hola, JARVIS», hacé una pausa breve y observá el estado de voz.
+- Si no se activa, el estado muestra el último segmento final que Vosk entendió.
+  No se escribe a disco ni se envía a internet. El texto permanece visible en
+  pantalla hasta otro evento de voz; Cancelar micrófono lo reemplaza.
+- Probá también «Hola, asistente», una frase alternativa habilitada como diagnóstico.
+- La detección acepta variantes acentuadas, algunas variantes fonéticas y
+  «hola» y el nombre en dos segmentos separados por menos de dos segundos.
+- No activa con «hola» sola. La exactitud real depende del modelo español.

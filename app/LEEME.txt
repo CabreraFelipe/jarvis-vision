@@ -1,0 +1,55 @@
+JARVIS Vision V0.4 — Windows
+============================
+Actualización independiente. Conservá la carpeta V0.3 como respaldo.
+Si querés mantener la selección y fotos anteriores, copiá camera_config.json y la
+carpeta capturas desde la versión anterior a esta ANTES de iniciar. No sobrescribas
+archivos nuevos si ya configuraste V0.4. No se modifica la instalación anterior.
+
+1. Cerrá Zoom y JARVIS anterior. Descomprimí el ZIP. Ejecutá INICIAR.bat.
+   Si faltan dependencias, ejecutá INSTALAR.bat y después INICIAR.bat.
+2. La primera cámara se conecta al iniciar. En la segunda, elegí otro índice y
+   pulsá Conectar. Los índices de Windows pueden cambiar: identificá las cámaras
+   por la imagen. No se abre la segunda cámara automáticamente por privacidad.
+3. Resolución Automática intenta 1080p, 720p y VGA por DirectShow; MSMF se usa
+   si el primer backend no entrega imagen. Puede demorar en cámaras lentas.
+   También podés elegir resolución, formato y FPS solicitados, y pulsar Conectar.
+   La resolución efectiva se obtiene de los fotogramas, no de la solicitud.
+   FPS medidos son una aproximación de la entrega a la app, no FPS de grabación.
+   Predeterminada deja ancho/alto al driver (pero solicita los FPS elegidos).
+   Si Automática no funciona, probá Predeterminada / Automático / 30 FPS.
+   Si falla un cambio, se intenta restaurar el modo anterior si estaba conectado
+   y el índice sigue libre. Apagar detiene la captura y descarta resultados viejos.
+   Algunos drivers pueden demorar en liberar el dispositivo. Si ambas cámaras no
+   funcionan juntas, probá 640x480, MJPG y 15 FPS o puertos USB distintos.
+4. Elegí la cámara para IA y fotos en el panel derecho. YOLO conserva el modelo
+   yolo11n.pt (descarga inicial por internet). Solo analiza la fuente seleccionada.
+   Las etiquetas se muestran en inglés. No identifica todos los objetos.
+5. Para preguntas visuales: instalá Ollama desde https://ollama.com/download/windows
+   y ejecutá en PowerShell: ollama pull gemma3:4b. Ollama debe estar iniciado.
+   La app envía una sola captura al servicio local 127.0.0.1 por pregunta.
+6. Para voz, seguí VOZ.txt. No es necesario instalar voz para usar las cámaras.
+7. No se graba video ni audio en disco. Las fotos se guardan únicamente al pulsar
+   Guardar foto local. La voz se procesa bajo demanda o en modo activación explícita.
+   Usar con consentimiento. No hay memoria persistente de conversaciones.
+
+Pruebas: ver PRUEBAS.txt. No se ha probado con el hardware real del usuario.
+
+NOVEDADES V0.4
+- Conservá tu instalación anterior. Copiá camera_config.json, capturas, modelos
+  y el archivo yolo11n.pt si lo tenés en la carpeta anterior. No sobrescribas
+  archivos de configuración ya usados en V0.4. Ollama no se reinstala.
+- Elegí Visual o Conversación sin cámara antes de enviar una pregunta.
+  En modo visual se usa la fuente seleccionada; en conversación no se captura
+  ninguna imagen para el modelo (podés apagar ambas cámaras).
+- Contexto de esta sesión: conserva hasta 4 intercambios textuales recientes
+  truncados en RAM. No almacena imágenes en el historial. Puede incluir descripciones
+  de escenas anteriores. Borrá el contexto cuando quieras; se pierde al cerrar.
+- Activá «Hola, JARVIS» voluntariamente. La escucha se detiene para procesar
+  la respuesta y durante la síntesis; se rearma al terminar. Ver VOZ.txt.
+- Cancelar micrófono desactiva la escucha, no cancela una consulta ya enviada
+  a Ollama ni una síntesis de voz ya iniciada.
+
+V0.4.1: corrección de frase de activación y estado de diagnóstico Vosk.
+No hay dependencias nuevas. Con JARVIS cerrado, copiá camera_config.json,
+modelos, capturas y yolo11n.pt desde tu instalación anterior si existen.
+Ver VOZ.txt para probar. No se modifica el contenido de la instalación anterior.

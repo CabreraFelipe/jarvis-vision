@@ -1,0 +1,219 @@
+"""JARVIS manager protocol 1. Trusted local release ZIP or user-configured HTTPS feed."""
+import hashlib, json, os, re, shutil, subprocess, sys, tempfile, zipfile
+from contextlib import contextmanager
+from pathlib import Path
+from urllib.request import Request, build_opener, HTTPRedirectHandler
+from urllib.parse import urlparse
+
+PROTOCOL=1
+MAX_ZIP=50*1024*1024
+MAX_FILE=20*1024*1024
+MAX_MANIFEST=128*1024
+APP_EXIT=42
+VERSION_RE=re.compile(r'(0|[1-9]\d{0,4})\.(0|[1-9]\d{0,4})\.(0|[1-9]\d{0,4})\Z')
+NAME_RE=re.compile(r'[A-Za-z0-9_][A-Za-z0-9_.-]{0,100}\.(py|txt|bat|json)\Z')
+SHA_RE=re.compile(r'[0-9a-f]{64}\Z')
+REQUIRED={'jarvis_vision.py','camera.py','voice.py','conversation.py','vision.py','requirements.txt','requirements-voice.txt'}
+RESERVED={'camera_config.json','update_state.json','feed.json'}
+
+def version(v):
+    if not isinstance(v,str) or not VERSION_RE.fullmatch(v): raise ValueError('Versión inválida')
+    return tuple(map(int,v.split('.')))
+
+def atomic_json(path,data):
+    fd,tmp=tempfile.mkstemp(prefix='.state-',dir=path.parent)
+    try:
+        with os.fdopen(fd,'w',encoding='utf-8') as f:
+            json.dump(data,f,ensure_ascii=False,indent=2); f.flush(); os.fsync(f.fileno())
+        os.replace(tmp,path)
+    finally:
+        if os.path.exists(tmp): os.unlink(tmp)
+
+def read_json(path): return json.loads(path.read_text(encoding='utf-8'))
+def digest(data): return hashlib.sha256(data).hexdigest()
+
+def manifest(raw):
+    m=json.loads(raw); version(m['version'])
+    if m.get('product')!='jarvis-vision' or m.get('protocol')!=PROTOCOL: raise ValueError('Producto o protocolo incompatible')
+    files=m['files']
+    if not isinstance(files,dict) or not REQUIRED.issubset(files) or len(files)>100: raise ValueError('Archivos requeridos ausentes')
+    folded=set()
+    for n,h in files.items():
+        if not NAME_RE.fullmatch(n) or n.lower() in RESERVED or n.lower() in folded or not isinstance(h,str) or not SHA_RE.fullmatch(h): raise ValueError('Nombre o hash inválido: '+n)
+        folded.add(n.lower())
+    return m
+
+@contextmanager
+def instance_lock(store):
+    store.mkdir(parents=True,exist_ok=True)
+    with (store/'manager.lock').open('a+b') as f:
+        f.seek(0,2)
+        if f.tell()==0: f.write(b'0'); f.flush()
+        f.seek(0)
+        try:
+            if os.name=='nt':
+                import msvcrt; msvcrt.locking(f.fileno(),msvcrt.LK_NBLCK,1)
+            else:
+                import fcntl; fcntl.flock(f,fcntl.LOCK_EX|fcntl.LOCK_NB)
+        except OSError as e: raise RuntimeError('Ya hay una instancia administrada de JARVIS abierta. Cerrala primero.') from e
+        try: yield
+        finally:
+            f.seek(0)
+            if os.name=='nt': msvcrt.locking(f.fileno(),msvcrt.LK_UNLCK,1)
+            else: fcntl.flock(f,fcntl.LOCK_UN)
+
+class Manager:
+    def __init__(self,root):
+        self.root=Path(root).resolve(); self.store=self.root/'.jarvis'; self.versions=self.store/'versions'; self.versions.mkdir(parents=True,exist_ok=True); self.statefile=self.store/'state.json'; self.feedfile=self.store/'feed.json'
+    def state(self):
+        if not self.statefile.exists(): return {'active':None,'previous':None}
+        s=read_json(self.statefile)
+        for k in ('active','previous'):
+            if s.get(k) is not None: version(s[k])
+        return s
+    def verified(self,v):
+        version(v); path=self.versions/v; m=manifest((path/'release.json').read_bytes())
+        if m['version']!=v: raise ValueError('Versión inconsistente')
+        for n,h in m['files'].items():
+            p=path/n
+            if p.is_symlink() or not p.is_file() or digest(p.read_bytes())!=h: raise ValueError('Archivo alterado: '+n)
+        return path
+    def install(self,package,expected_version=None,expected_sha=None):
+        package=Path(package)
+        if package.stat().st_size>MAX_ZIP: raise ValueError('ZIP demasiado grande')
+        if expected_sha and digest(package.read_bytes())!=expected_sha: raise ValueError('SHA-256 del ZIP no coincide')
+        old=self.state(); stage=None
+        try:
+            with zipfile.ZipFile(package) as z:
+                entries=z.infolist(); names=[i.filename for i in entries]
+                if len(names)>150 or len(names)!=len(set(n.casefold() for n in names)): raise ValueError('Entradas duplicadas o excesivas')
+                if 'release.json' not in names or z.getinfo('release.json').file_size>MAX_MANIFEST: raise ValueError('Manifiesto ausente o demasiado grande')
+                raw=z.read('release.json'); m=manifest(raw); v=m['version']
+                if expected_version and v!=expected_version: raise ValueError('Versión distinta a la anunciada')
+                if old['active'] and version(v)<=version(old['active']): raise ValueError('No es una versión más reciente; usá restaurar para volver atrás')
+                allowed={'release.json','manager.py','INSTALAR_ACTUALIZADOR.py','INSTALAR_ACTUALIZADOR.bat','LEEME.txt','app/'}|{'app/'+n for n in m['files']}
+                if not set(names).issubset(allowed): raise ValueError('Entradas no autorizadas en ZIP')
+                if sum(i.file_size for i in entries)>MAX_ZIP or any(i.file_size>MAX_FILE for i in entries): raise ValueError('Tamaño descomprimido excesivo')
+                stage=Path(tempfile.mkdtemp(prefix='.stage-',dir=self.versions))
+                for n,h in m['files'].items():
+                    i=z.getinfo('app/'+n)
+                    if i.is_dir() or ((i.external_attr>>16)&0o170000)==0o120000: raise ValueError('Entrada no regular')
+                    data=z.read(i)
+                    if digest(data)!=h: raise ValueError('Hash inválido: '+n)
+                    if n.endswith('.py'): compile(data,n,'exec')
+                    (stage/n).write_bytes(data)
+                (stage/'release.json').write_bytes(raw)
+                dest=self.versions/v
+                if dest.exists():
+                    self.verified(v)
+                    if (dest/'release.json').read_bytes()!=raw: raise ValueError('Versión existente con contenido diferente')
+                else: os.replace(stage,dest); stage=None
+                atomic_json(self.statefile,{'active':v,'previous':old['active']})
+                return v
+        finally:
+            if stage is not None: shutil.rmtree(stage,ignore_errors=True)
+    def rollback(self):
+        s=self.state(); prior=s['previous']
+        if not prior: raise ValueError('Todavía no hay una versión administrada anterior')
+        self.verified(prior)
+        atomic_json(self.statefile,{'active':prior,'previous':s['active']}); return prior
+    def launch(self,args=()):
+        path=self.verified(self.state()['active']); env=os.environ.copy(); env.update(JARVIS_DATA_DIR=str(self.root),JARVIS_MANAGED='1')
+        return subprocess.call([sys.executable,str(path/'jarvis_vision.py'),*args],cwd=self.root,env=env)
+    def feed(self): return read_json(self.feedfile).get('url','') if self.feedfile.exists() else ''
+    def set_feed(self,url):
+        if url: https(url)
+        atomic_json(self.feedfile,{'url':url})
+    def check(self):
+        url=self.feed()
+        if not url: return None
+        m=json.loads(fetch(url,MAX_MANIFEST)); v=m['version']; version(v)
+        if m.get('product')!='jarvis-vision' or m.get('protocol')!=PROTOCOL: raise ValueError('Canal incompatible')
+        https(m['url']); h=m['sha256']
+        if not isinstance(h,str) or not SHA_RE.fullmatch(h): raise ValueError('SHA-256 inválido en canal')
+        active=self.state()['active']; return m if not active or version(v)>version(active) else None
+    def download(self,m):
+        data=fetch(m['url'],MAX_ZIP)
+        with tempfile.TemporaryDirectory() as tmp:
+            p=Path(tmp)/'release.zip'; p.write_bytes(data); return self.install(p,m['version'],m['sha256'])
+
+def https(url):
+    u=urlparse(url)
+    if u.scheme!='https' or not u.hostname or u.username or u.password: raise ValueError('El canal requiere URL HTTPS sin credenciales')
+    return url
+class HTTPSOnly(HTTPRedirectHandler):
+    def redirect_request(self,req,fp,code,msg,headers,newurl):
+        https(newurl); return super().redirect_request(req,fp,code,msg,headers,newurl)
+def fetch(url,limit):
+    with build_opener(HTTPSOnly()).open(Request(https(url),headers={'User-Agent':'JARVIS-Vision-Updater/1'}),timeout=8) as r:
+        https(r.geturl()); data=r.read(limit+1)
+        if len(data)>limit: raise ValueError('Descarga demasiado grande')
+        return data
+
+def ui(m, startup=False):
+    import tkinter as tk
+    from tkinter import ttk,messagebox,filedialog,simpledialog
+    root=tk.Tk(); root.title('JARVIS · Actualizaciones'); root.geometry('600x300'); root.resizable(False,False); result={'launch':False}
+    status=tk.StringVar(); busy=False
+    def refresh():
+        s=m.state(); status.set(f"Versión activa: {s['active']}\nVersión anterior: {s['previous'] or 'ninguna administrada'}\nCanal: {'configurado' if m.feed() else 'sin configurar (ZIP local disponible)'}")
+    def run(fn):
+        nonlocal busy
+        if busy:return
+        busy=True; root.config(cursor='watch'); root.update_idletasks()
+        try: fn(); refresh()
+        except Exception as e: messagebox.showerror('Actualizaciones',str(e),parent=root)
+        finally: busy=False; root.config(cursor='')
+    def install():
+        p=filedialog.askopenfilename(parent=root,filetypes=[('Paquete JARVIS','*.zip')]);
+        if p and messagebox.askyesno('Instalar','¿Confiás en el origen de este paquete? Solo se actualizará el programa.',parent=root): messagebox.showinfo('Actualizado','Versión instalada: '+m.install(p),parent=root)
+    def check():
+        if not m.feed(): messagebox.showinfo('Canal','Todavía no hay un canal publicado. Configuralo o instalá un ZIP.',parent=root); return
+        new=m.check()
+        if new is None: messagebox.showinfo('Canal','No hay una versión más reciente.',parent=root); return
+        if messagebox.askyesno('Actualización',f"Disponible V{new['version']}. ¿Descargar e instalar desde el canal configurado?",parent=root): messagebox.showinfo('Actualizado','Versión instalada: '+m.download(new),parent=root)
+    def configure():
+        url=simpledialog.askstring('Canal HTTPS','URL del manifiesto de un canal de confianza. Vacío para desactivar. Los paquetes pueden ejecutar código.',initialvalue=m.feed(),parent=root)
+        if url is not None: m.set_feed(url.strip())
+    def restore():
+        if messagebox.askyesno('Restaurar','¿Volver a la versión anterior? Los datos compartidos no se revierten.',parent=root): messagebox.showinfo('Restaurado','Versión activa: '+m.rollback(),parent=root)
+    def launch():
+        if not busy: result['launch']=True; root.destroy()
+    ttk.Label(root,text='JARVIS Vision · Gestor de versiones',font=('Segoe UI',16,'bold')).pack(pady=12); ttk.Label(root,textvariable=status,justify='left').pack(pady=8)
+    row=ttk.Frame(root); row.pack(pady=6)
+    for label,fn in [('Instalar ZIP',install),('Buscar actualización',check),('Configurar canal',configure),('Restaurar',restore)]: ttk.Button(row,text=label,command=lambda f=fn:run(f)).pack(side='left',padx=3)
+    ttk.Button(root,text='Abrir JARVIS',command=launch).pack(pady=12)
+    root.protocol('WM_DELETE_WINDOW',lambda:root.destroy() if not busy else None); refresh()
+    if startup:
+        def auto():
+            nonlocal busy
+            busy=True; root.config(cursor='watch'); root.update_idletasks()
+            try:
+                new=m.check()
+                if new and messagebox.askyesno('Actualización disponible',f"V{new['version']}: ¿descargar e instalar?",parent=root): m.download(new)
+            except Exception as e: messagebox.showwarning('Canal no disponible',str(e),parent=root)
+            finally: busy=False; root.config(cursor='')
+            launch()
+        root.after(50,auto)
+    root.mainloop(); return result['launch']
+
+def main():
+    import tkinter as tk
+    from tkinter import messagebox
+    m=Manager(Path(__file__).resolve().parent.parent)
+    args=sys.argv[1:]; manage='--manage' in args; args=[x for x in args if x!='--manage']
+    try:
+      with instance_lock(m.store):
+        if manage or m.feed():
+            if not ui(m,startup=not manage): return 0
+        while True:
+            rc=m.launch(args)
+            if rc==APP_EXIT:
+                if ui(m): continue
+                return 0
+            if rc!=0:
+                root=tk.Tk(); root.withdraw(); messagebox.showwarning('JARVIS',f'La aplicación terminó con código {rc}. Podés abrir el gestor con ACTUALIZACIONES.bat para restaurar.',parent=root); root.destroy()
+            return rc
+    except Exception as e:
+        root=tk.Tk(); root.withdraw(); messagebox.showerror('JARVIS',str(e),parent=root); root.destroy(); return 1
+if __name__=='__main__': raise SystemExit(main())

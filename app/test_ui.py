@@ -18,6 +18,8 @@ with tempfile.TemporaryDirectory() as d, patch('camera.cv2.VideoCapture',FakeCap
     try:
         wait(root,lambda:a.frame() is not None and a.saved)
         assert '640 × 480' in a.status.get()
+        assert 'FPS captura' in a.status.get() and 'Vista:' in a.status.get()
+        assert a.backend.get()=='Automático'
         assert b.capture is None
         b.index.set('0'); b.connect(); assert warn.called and b.capture is None
         b.index.set('1'); b.res.set('640x480'); b.connect(); wait(root,lambda:b.frame() is not None and b.saved)

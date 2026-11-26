@@ -33,4 +33,5 @@ with tempfile.TemporaryDirectory() as d, patch('camera.cv2.VideoCapture',FakeCap
         print('UI: inicio, dos cámaras, bloqueo de índice duplicado, selección IA, restauración y apagado OK')
     finally:
         sessions=[s.capture for s in app.slots if s.capture]; app.close()
-        for s in sessions: s.thread.join(2)
+        assert app.shutdown.wait(2)
+        assert all(not s.thread.is_alive() for s in sessions)

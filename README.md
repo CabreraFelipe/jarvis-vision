@@ -14,7 +14,7 @@ La memoria guarda únicamente notas explícitas, desactivada por defecto, en SQL
 - Raíz: python -m unittest test_release test_security.
 - app: python -m unittest test_jarvis test_v04 test_wake041 test_core test_memory test_launcher test_diagnostics test_speech_turn.
 - UI simulada: python test_ui.py y python test_voice_ui.py (Linux con Xvfb).
-- El usuario confirmó la migración del gestor y la detección automática al abrir JARVIS.bat; no confirmó explícitamente instalación física de V0.4.4. La prueba acumulativa V0.5.0 debe comprobar versión visible, dos cámaras, voz real, memoria y diagnóstico. Ver docs/ACCEPTANCE_V050.md.
+- El usuario confirmó la migración del gestor y la detección automática al abrir JARVIS.bat; no confirmó explícitamente instalación física de V0.4.4. El usuario confirmó las ocho comprobaciones de alto nivel de V0.5.0 en su PC. Webcam a 5 FPS reportada posteriormente; rendimiento pendiente de diagnóstico. Ver docs/ACCEPTANCE_V050.md.
 
 ## Desarrollo
 Autonomía para cambios y releases validadas, con consentimiento local para instalar. No confundir CI con validación física.

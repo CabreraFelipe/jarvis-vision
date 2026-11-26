@@ -11,3 +11,6 @@ No se afirma que estos controles hayan sido ejecutados en el PC. CI con simulaci
 8. Si hay regresión, usar Restaurar y comunicar el resultado. No borrar archivos ni reemplazar versiones manualmente.
 
 Pendientes fuera de V0.5.0: actualización autenticada del propio gestor sin migración repetida, modelo acústico especializado, Pipecat, memoria semántica, control de PC.
+
+## Resultado comunicado por el usuario (26/11/2026)
+Confirmadas las ocho comprobaciones de alto nivel: actualización automática V0.5.0, cámaras, activación Hola JARVIS y nombre aislado, detección de pausas, memoria/personalidad, diagnóstico e inicio por acceso directo sin CMD. No se infiere validación exhaustiva de cada subpaso, ni tasa acústica, ni migración del nuevo gestor. Incidencia previa de instancia administrada abierta, posteriormente pudo abrir la app. Mejora futura: recuperar/enfocar instancia existente sin saltarse el bloqueo. Nueva observación: webcam a 5 FPS; causa no confirmada. Probar 720p MJPG 30 FPS y 480p MJPG 30 FPS con buena luz, una sola cámara y YOLO desactivado, comparar con otra aplicación. El modo automático actual prioriza resolución y no mide rendimiento durante la negociación. Pendiente diseño de perfil equilibrado que conserve opciones manuales.

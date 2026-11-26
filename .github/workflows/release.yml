@@ -1,6 +1,15 @@
 name: Validar y publicar JARVIS
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'VERSION'
+      - 'app/**'
+      - 'manager.py'
+      - 'build_release.py'
+      - 'test_release.py'
+      - '.github/workflows/release.yml'
 permissions:
   contents: read
 concurrency:
@@ -59,4 +68,9 @@ jobs:
         run: |
           set -eu
           version=$(cat VERSION)
+          tags=$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq '.[].tag_name')
+          if printf '%s\n' "$tags" | grep -Fxq "v$version"; then
+            echo "Version v$version already published; never overwrite an existing release."
+            exit 0
+          fi
           gh release create "v$version" "dist/JARVIS_Vision_V$version.zip" dist/feed.json --target "$GITHUB_SHA" --title "JARVIS Vision V$version" --notes "Pruebas automatizadas Linux y Windows superadas. Dispositivos simulados. Instalación requiere confirmación local." --latest

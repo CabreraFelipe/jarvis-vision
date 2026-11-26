@@ -22,6 +22,7 @@ from voice_followup import Followup,stop_phrase
 from shutdown import Shutdown
 from assistant_core import AssistantCore
 from memory import Memory
+from preference_learning import suggest as suggest_preference
 from memory_commands import parse as parse_memory_command,execute as execute_memory_command
 from semantic_memory import resolve_notes
 from dataclasses import replace
@@ -135,7 +136,7 @@ class Slot:
 class App:
     def __init__(self,root,index=None):
         self.root=root; self.closed=False; self.shutdown=Shutdown(); self.exit_guard=False; self.tick_id=None; self.results=queue.Queue(); self.ask_busy=False; self.detect_busy=False; self.detector=None; self.detection_on=False; self.detect_epoch=0; self.last_detection=0; self.listen_busy=False; self.speak_busy=False; self.stop_voice=threading.Event(); self.memory_cancel=threading.Event(); self.core=AssistantCore(ask_vision); self.conversation=self.core.conversation; self.wake_enabled=False; self.voice_epoch=0; self.pending_speech=None; self.followup=Followup();self.followup_request=None
-        self.memory=Memory(CONFIG.parent/'jarvis_memory.sqlite3'); self.memory_window=None; self.diagnostics_window=None; self.speech_input_window=None; self.voice_output_window=None
+        self.memory=Memory(CONFIG.parent/'jarvis_memory.sqlite3'); self.memory_window=None; self.pending_preference=None; self.diagnostics_window=None; self.speech_input_window=None; self.voice_output_window=None
         self.voice_settings_path=CONFIG.parent/'voice_preferences.json';self.voice_settings=voice_output.load(self.voice_settings_path)
         self.speech_path=CONFIG.parent/'speech_input.json';self.speech_settings=speech_input.load(self.speech_path)
         self.start_cache_path=CONFIG.parent/'camera_start_cache.json';self.start_cache=load_start_cache(self.start_cache_path)
@@ -166,6 +167,7 @@ class App:
         self.question=ttk.Entry(side); self.question.pack(fill='x'); self.question.insert(0,'¿Qué ves delante de la cámara?'); self.question.bind('<Return>',lambda _:self.ask())
         self.mode=tk.StringVar(value='Visual'); ttk.Combobox(side,textvariable=self.mode,values=['Visual','Conversación sin cámara'],state='readonly').pack(fill='x',pady=3)
         self.abutton=ttk.Button(side,text='Enviar pregunta',command=self.ask); self.abutton.pack(fill='x',pady=4)
+        self.preference_button=ttk.Button(side,text='Revisar recuerdo sugerido',state='disabled',command=self.review_preference);self.preference_button.pack(fill='x',pady=2)
         self.context_on=tk.BooleanVar(value=True); ttk.Checkbutton(side,text='Contexto de esta sesión',variable=self.context_on,command=self.clear_context).pack(anchor='w'); ttk.Button(side,text='Nueva conversación / borrar contexto',command=self.clear_context).pack(fill='x',pady=2)
         self.natural_turn=tk.BooleanVar(value=False)
         ttk.Checkbutton(side,text='Terminar al detectar una pausa',variable=self.natural_turn,command=self.update_voice_button).pack(anchor='w')
@@ -244,8 +246,23 @@ class App:
         self.followup.reset();self.followup_request=None
         if self.listen_busy and getattr(self,'listening_followup',False):
             self.stop_voice.set();self.voice_epoch+=1
+    def clear_preference(self):
+        self.pending_preference=None;self.preference_button.configure(state='disabled')
+    def review_preference(self):
+        if self.closed or self.ask_busy or self.speak_busy:return
+        note=self.pending_preference;self.clear_preference()
+        if not note:return
+        try:
+            if not self.context_on.get() or not self.memory.suggestions_enabled():return
+            self.cancel_voice()
+            if messagebox.askyesno('Guardar recuerdo sugerido',note,parent=self.root):
+                if self.context_on.get() and self.memory.suggestions_enabled():
+                    saved=self.memory.add(note);self.clear_context()
+                    if self.memory_window is not None and self.memory_window.winfo_exists():self.memory_window.destroy();self.memory_window=None
+                    self.write('Recuerdo guardado.' if saved else 'Ese recuerdo ya existe.')
+        except Exception as e:self.write('No se pudo guardar el recuerdo: '+str(e))
     def clear_context(self):
-        self.memory_cancel.set(); self.change_followup();self.core.clear(); self.pending_speech=None; self.write('Contexto borrado. Nueva conversación.')
+        self.clear_preference();self.memory_cancel.set(); self.change_followup();self.core.clear(); self.pending_speech=None; self.write('Contexto borrado. Nueva conversación.')
     def local_memory_command(self,question):
         command=parse_memory_command(question)
         if command is None:return False
@@ -268,6 +285,7 @@ class App:
         return True
     def ask(self,follow_epoch=None):
         if self.closed or self.ask_busy: return False
+        self.clear_preference()
         question=self.question.get().strip()
         if question and self.local_memory_command(question): return True
         if follow_epoch is None:self.change_followup()
@@ -368,6 +386,10 @@ class App:
                 self.write(f'{source}:\n'+(text if not error else 'Error: '+error+'\nComprobá Ollama y gemma3:4b.')+('\n\nMemoria: '+memory_status if memory_status and not error else ''))
                 if not error:
                     self.core.accept(request,text,self.context_on.get())
+                    try:
+                        self.pending_preference=suggest_preference(self.memory,request.question,request.use_context and self.context_on.get())
+                        if self.pending_preference:self.preference_button.configure(state='normal')
+                    except Exception:self.clear_preference()
                     if self.auto_speak.get(): self.pending_speech=text
                     if self.wake_enabled and self.followup_on.get():self.followup.accepted(follow_epoch)
                 else:self.followup.reset()

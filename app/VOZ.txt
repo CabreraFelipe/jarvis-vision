@@ -43,3 +43,5 @@ CORRECCIÓN V0.4.1
 - La detección acepta variantes acentuadas, algunas variantes fonéticas y
   «hola» y el nombre en dos segmentos separados por menos de dos segundos.
 - No activa con «hola» sola. La exactitud real depende del modelo español.
+
+Modo opcional «Terminar al detectar una pausa»: usa el final de segmento de Vosk, con máximo 12 segundos. El modo de 6 segundos y Hola JARVIS siguen disponibles. No es streaming de respuesta ni interrupción de TTS. Si las pausas naturales cortan demasiado pronto, desactivar esta opción.

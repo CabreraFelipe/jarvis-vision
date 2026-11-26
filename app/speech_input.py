@@ -3,13 +3,14 @@ import json,os,tempfile
 from pathlib import Path
 MODELS={'Ligero':'vosk-model-small-es-0.42','Completo':'vosk-model-es-0.42'}
 DEFAULT={'model':'Ligero','device':None}
+MANUAL_MODELS=tuple(MODELS)+('Whisper small',)
 def normalize(raw):
     raw=raw if isinstance(raw,dict) else {}
     model=raw.get('model');device=raw.get('device')
     if not isinstance(device,dict) or type(device.get('index')) is not int or device['index']<0 or not isinstance(device.get('name'),str) or not isinstance(device.get('host'),str):
         device=None
     else:device={k:device[k] for k in ('index','name','host')}
-    return {'model':model if isinstance(model,str) and model in MODELS else 'Ligero','device':device}
+    return {'model':model if isinstance(model,str) and model in MANUAL_MODELS else 'Ligero','device':device}
 def load(path):
     try:return normalize(json.loads(Path(path).read_text(encoding='utf-8')))
     except (OSError,ValueError):return dict(DEFAULT)
@@ -33,4 +34,4 @@ def resolve_device(sd,saved):
     if len(matches)==1:return matches[0]['index']
     raise RuntimeError('Micrófono guardado no disponible o ambiguo. Elegí nuevamente la entrada en Herramientas.')
 def model_path(base,model):
-    return Path(base)/'modelos'/MODELS[model]
+    return Path(base)/'modelos'/('faster-whisper-small' if model=='Whisper small' else MODELS[model])

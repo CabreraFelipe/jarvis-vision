@@ -22,6 +22,7 @@ from voice_followup import Followup,stop_phrase
 from shutdown import Shutdown
 from assistant_core import AssistantCore
 from memory import Memory
+from memory_commands import parse as parse_memory_command,execute as execute_memory_command
 from semantic_memory import resolve_notes
 from dataclasses import replace
 from memory_ui import open_memory
@@ -245,10 +246,32 @@ class App:
             self.stop_voice.set();self.voice_epoch+=1
     def clear_context(self):
         self.memory_cancel.set(); self.change_followup();self.core.clear(); self.pending_speech=None; self.write('Contexto borrado. Nueva conversación.')
+    def local_memory_command(self,question):
+        command=parse_memory_command(question)
+        if command is None:return False
+        # Stop activation and pending playback before showing private data or consent.
+        self.cancel_voice()
+        if command.action=='list':
+            self.show_memory()
+            self.write('Recuerdos disponibles en la ventana de memoria. No se leen en voz alta.')
+            return True
+        def confirm(title,value):
+            return messagebox.askyesno(title,value,parent=self.root)
+        try:
+            result=execute_memory_command(self.memory,command,confirm)
+            self.clear_context()
+            if self.memory_window is not None and self.memory_window.winfo_exists():
+                self.memory_window.destroy();self.memory_window=None
+            self.write(result)
+        except Exception as e:
+            self.write('No se pudo completar el comando de memoria: '+str(e))
+        return True
     def ask(self,follow_epoch=None):
         if self.closed or self.ask_busy: return False
+        question=self.question.get().strip()
+        if question and self.local_memory_command(question): return True
         if follow_epoch is None:self.change_followup()
-        s=self.active(); visual=self.mode.get()=='Visual'; frame=s.frame() if visual else None; question=self.question.get().strip()
+        s=self.active(); visual=self.mode.get()=='Visual'; frame=s.frame() if visual else None
         if visual and frame is None: self.write('Conectá la cámara seleccionada o elegí Conversación sin cámara.'); return False
         if not question: return False
         # Stop recording before inference; defer speech until the stream is closed.

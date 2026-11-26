@@ -1,5 +1,7 @@
 """Explicit local preferences and memories; no automatic transcript storage."""
 import sqlite3
+import json
+from personality import DEFAULT as PERSONALITY_DEFAULT,validate as validate_personality
 import re
 import unicodedata
 from contextlib import contextmanager
@@ -40,6 +42,7 @@ class Memory:
                 con.execute('INSERT OR IGNORE INTO semantic_settings VALUES (1,0)')
                 con.execute('CREATE TABLE IF NOT EXISTS learning_settings (id INTEGER PRIMARY KEY CHECK(id=1), enabled INTEGER NOT NULL)')
                 con.execute('INSERT OR IGNORE INTO learning_settings VALUES (1,0)')
+                con.execute('CREATE TABLE IF NOT EXISTS personality_settings (id INTEGER PRIMARY KEY CHECK(id=1), profile TEXT NOT NULL)')
                 yield con
         finally:
             con.close()
@@ -51,6 +54,17 @@ class Memory:
     def semantic_enabled(self):
         if not self.path.exists(): return False
         with self.db() as con: return bool(con.execute('SELECT enabled FROM semantic_settings WHERE id=1').fetchone()[0])
+    def personality(self):
+        if not self.path.exists():return PERSONALITY_DEFAULT
+        with self.db() as con:
+            row=con.execute('SELECT profile FROM personality_settings WHERE id=1').fetchone()
+        if row is None:return PERSONALITY_DEFAULT
+        try:return validate_personality(json.loads(row[0]))
+        except (ValueError,TypeError):return PERSONALITY_DEFAULT
+    def set_personality(self,profile):
+        profile=validate_personality(profile)
+        with self.db() as con:
+            con.execute('INSERT INTO personality_settings VALUES (1,?) ON CONFLICT(id) DO UPDATE SET profile=excluded.profile',(json.dumps(profile,ensure_ascii=False),))
     def suggestions_enabled(self):
         if not self.path.exists(): return False
         with self.db() as con:

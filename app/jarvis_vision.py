@@ -296,10 +296,12 @@ class App:
         if self.listen_busy:
             self.stop_voice.set(); self.voice_epoch+=1
         self.ask_busy=True; self.abutton.configure(state='disabled'); source=f'Cámara {s.num+1}' if visual else 'Sin cámara'; self.write(f'{source}: procesando…'); gen=s.generation
-        try: style,memories,candidates=self.memory.selection(question,self.context_on.get())
+        try:
+            style,memories,candidates=self.memory.selection(question,self.context_on.get())
+            personality=self.memory.personality()
         except Exception as e:
             self.ask_busy=False; self.abutton.configure(state='normal'); self.write('No se pudo leer la memoria: '+str(e)); return False
-        request=self.core.prepare(question,source,frame,self.context_on.get(),style,memories if self.context_on.get() else ())
+        request=self.core.prepare(question,source,frame,self.context_on.get(),style,memories if self.context_on.get() else (),personality)
         self.followup_request=follow_epoch
         self.memory_cancel=threading.Event();cancel=self.memory_cancel
         def work():

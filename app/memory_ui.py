@@ -2,6 +2,7 @@
 import tkinter as tk
 from tkinter import ttk, messagebox, simpledialog
 from memory import STYLES
+from personality import OPTIONS,DEFAULT
 
 def open_memory(parent,store,on_change):
     win=tk.Toplevel(parent); win.title('JARVIS · Memoria y personalidad'); win.geometry('640x540'); win.transient(parent)
@@ -31,6 +32,26 @@ def open_memory(parent,store,on_change):
     ttk.Label(panel,text='Estilo de respuesta').pack(anchor='w',pady=(8,0))
     combo=ttk.Combobox(panel,values=STYLES,textvariable=tone,state='readonly'); combo.pack(fill='x')
     combo.bind('<<ComboboxSelected>>',lambda _:guard(settings))
+    def profile_window():
+        dialog=tk.Toplevel(win);dialog.title('Personalidad avanzada');dialog.transient(win)
+        frame=ttk.Frame(dialog,padding=16);frame.pack(fill='both',expand=True)
+        ttk.Label(frame,text='Las preferencias modifican las respuestas, no autorizan acciones.').pack(anchor='w',pady=4)
+        variables=[]
+        for (label,choices),value in zip(OPTIONS,store.personality()):
+            ttk.Label(frame,text=label).pack(anchor='w',pady=(6,0))
+            var=tk.StringVar(value=value);variables.append(var)
+            ttk.Combobox(frame,textvariable=var,values=choices,state='readonly').pack(fill='x')
+        def reset():
+            for var,value in zip(variables,DEFAULT):var.set(value)
+        def save_profile():
+            if not messagebox.askyesno('Personalidad','¿Guardar estas preferencias?',parent=dialog):return
+            try:store.set_personality(tuple(v.get() for v in variables));on_change();dialog.destroy()
+            except Exception as e:messagebox.showerror('Personalidad',str(e),parent=dialog)
+        row=ttk.Frame(frame);row.pack(fill='x',pady=(12,0))
+        ttk.Button(row,text='Restablecer selección',command=reset).pack(side='left')
+        ttk.Button(row,text='Guardar',command=save_profile).pack(side='right')
+        dialog.grab_set()
+    ttk.Button(panel,text='Personalidad avanzada',command=lambda:guard(profile_window)).pack(fill='x',pady=4)
     query=tk.StringVar(); ttk.Label(panel,text='Buscar recuerdos').pack(anchor='w',pady=(8,0)); ttk.Entry(panel,textvariable=query).pack(fill='x')
     box=tk.Listbox(panel,exportselection=False); box.pack(fill='both',expand=True,pady=10)
     entries=[]

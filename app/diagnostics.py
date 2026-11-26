@@ -6,7 +6,7 @@ import sys
 import urllib.request
 from pathlib import Path
 
-PACKAGES=('opencv-python','Pillow','ultralytics','vosk','sounddevice','pyttsx3')
+PACKAGES=('opencv-python','Pillow','ultralytics','vosk','sounddevice','pyttsx3','piper-tts')
 LIMIT=1024*1024
 
 def package_version(name):

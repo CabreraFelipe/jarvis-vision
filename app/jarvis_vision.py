@@ -13,6 +13,8 @@ from PIL import Image,ImageTk
 from camera import Capture, MODES, FORMATS, FPS, BACKENDS, load_config, save_config
 from vision import ask_vision
 import voice
+import voice_output
+from voice_output_ui import open_voice_output
 from instance_focus import poll_focus
 from assistant_core import AssistantCore
 from memory import Memory
@@ -117,7 +119,8 @@ class Slot:
 class App:
     def __init__(self,root,index=None):
         self.root=root; self.closed=False; self.results=queue.Queue(); self.ask_busy=False; self.detect_busy=False; self.detector=None; self.detection_on=False; self.detect_epoch=0; self.last_detection=0; self.listen_busy=False; self.speak_busy=False; self.stop_voice=threading.Event(); self.core=AssistantCore(ask_vision); self.conversation=self.core.conversation; self.wake_enabled=False; self.voice_epoch=0; self.pending_speech=None
-        self.memory=Memory(CONFIG.parent/'jarvis_memory.sqlite3'); self.memory_window=None; self.diagnostics_window=None
+        self.memory=Memory(CONFIG.parent/'jarvis_memory.sqlite3'); self.memory_window=None; self.diagnostics_window=None; self.voice_output_window=None
+        self.voice_settings_path=CONFIG.parent/'voice_preferences.json'; self.voice_settings=voice_output.load(self.voice_settings_path)
         a,b,self.profiles=load_config(CONFIG)
         if index is not None: a=dict(self.profiles.get(str(index),a)); a['index']=index
         if b['index']==a['index']: b=dict(b,index=1 if a['index']!=1 else 0)
@@ -128,6 +131,7 @@ class App:
         ttk.Button(top,text='Memoria y personalidad',command=self.show_memory).pack(side='right',padx=6)
         menu=tk.Menu(root); tools=tk.Menu(menu,tearoff=False)
         tools.add_command(label='Diagnóstico de JARVIS',command=self.show_diagnostics)
+        tools.add_command(label='Configurar voz',command=self.show_voice_output)
         if os.name=='nt' and os.environ.get('JARVIS_MANAGED')=='1':
             tools.add_command(label='Crear acceso directo de JARVIS',command=self.make_shortcut)
         menu.add_cascade(label='Herramientas',menu=tools); root.configure(menu=menu)
@@ -155,6 +159,14 @@ class App:
         ttk.Label(side,text='Ollama local · imágenes solo a pedido. Voz continua solo si la activás.',wraplength=290).pack(fill='x')
         self.answer=tk.Text(side,wrap='word',height=8,width=30,font=('Segoe UI',10)); self.answer.pack(fill='both',expand=True); self.write('Conectá una cámara. Para preguntas instalá Ollama y gemma3:4b. Para voz, ver VOZ.txt.')
         self.slots[0].connect(); self.root.after(15,self.tick)
+    def show_voice_output(self):
+        if self.voice_output_window is not None and self.voice_output_window.winfo_exists():
+            self.voice_output_window.lift();return
+        def apply(settings):
+            voice_output.save(self.voice_settings_path,settings);self.voice_settings=settings
+        self.voice_output_window=open_voice_output(self.root,CONFIG.parent,self.voice_settings,apply,
+            lambda settings:self.speak('Hola. Soy JARVIS, tu asistente personal.',settings),
+            lambda:self.listen_busy or self.speak_busy or self.ask_busy or self.wake_enabled)
     def show_diagnostics(self):
         if self.diagnostics_window is not None and self.diagnostics_window.winfo_exists():
             self.diagnostics_window.lift(); return
@@ -241,11 +253,13 @@ class App:
                 self.results.put(('voice',epoch,wake,text,None))
             except Exception as e: self.results.put(('voice',epoch,wake,'',str(e)))
         threading.Thread(target=work,daemon=True).start()
-    def speak(self,text):
+    def speak(self,text,settings=None):
         if self.speak_busy or self.listen_busy: return
+        selected=dict(self.voice_settings if settings is None else settings)
         self.speak_busy=True; self.vstatus.set('Leyendo respuesta…')
         def work():
-            try: voice.speak(text); self.results.put(('spoken',None))
+            try:
+                voice_output.speak(CONFIG.parent,selected,text); self.results.put(('spoken',None))
             except Exception as e: self.results.put(('spoken',str(e)))
         threading.Thread(target=work,daemon=True).start()
     def save(self):

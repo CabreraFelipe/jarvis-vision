@@ -1,5 +1,5 @@
 """JARVIS secure manager candidate. Protocol 1 packages with verified GitHub provenance."""
-import hashlib, json, os, re, shutil, subprocess, sys, tempfile, zipfile
+import hashlib, json, os, re, shutil, subprocess, sys, tempfile, zipfile, time
 from contextlib import contextmanager
 from pathlib import Path
 from urllib.request import Request, build_opener, HTTPRedirectHandler
@@ -90,6 +90,28 @@ def manifest(raw):
         folded.add(n.lower())
     return m
 
+class InstanceBusy(RuntimeError):
+    pass
+
+# A fixed, content-free local signal. It never unlocks or launches another session.
+# No PID, HWND, network listener, or arbitrary commands are accepted.
+def request_focus(store):
+    try:
+        atomic_json(store/'focus-request.json',{'requested':time.time()})
+        return True
+    except OSError:
+        return False
+
+def consume_focus(store):
+    path=store/'focus-request.json'
+    try:
+        # Remove only this fixed signal, not the instance lock or application state.
+        stamp=path.stat().st_mtime
+        path.unlink()
+        return 0<=time.time()-stamp<=15
+    except OSError:
+        return False
+
 @contextmanager
 def instance_lock(store):
     store.mkdir(parents=True,exist_ok=True)
@@ -102,7 +124,7 @@ def instance_lock(store):
                 import msvcrt; msvcrt.locking(f.fileno(),msvcrt.LK_NBLCK,1)
             else:
                 import fcntl; fcntl.flock(f,fcntl.LOCK_EX|fcntl.LOCK_NB)
-        except OSError as e: raise RuntimeError('Ya hay una instancia administrada de JARVIS abierta. Cerrala primero.') from e
+        except OSError as e: raise InstanceBusy('Ya hay una instancia administrada de JARVIS abierta. Cerrala primero.') from e
         try: yield
         finally:
             f.seek(0)
@@ -277,6 +299,13 @@ def ui(m, startup=False):
     for label,fn in [('Instalar ZIP',install),('Buscar actualización',check),('Configurar canal',configure),('Restaurar',restore)]: ttk.Button(row,text=label,command=lambda f=fn:run(f)).pack(side='left',padx=3)
     ttk.Button(root,text='Abrir JARVIS',command=launch).pack(pady=12)
     root.protocol('WM_DELETE_WINDOW',lambda:root.destroy() if not busy else None); refresh()
+    def focus_poll():
+        if consume_focus(m.store):
+            try:
+                root.deiconify(); root.lift(); root.focus_set()
+            except tk.TclError: pass
+        root.after(250,focus_poll)
+    root.after(250,focus_poll)
     if startup:
         def auto():
             nonlocal busy
@@ -304,6 +333,7 @@ def main():
     args=sys.argv[1:]; manage='--manage' in args; args=[x for x in args if x!='--manage']
     try:
       with instance_lock(m.store):
+        consume_focus(m.store)
         if manage or m.feed():
             if not ui(m,startup=not manage): return 0
         while True:
@@ -314,6 +344,12 @@ def main():
             if rc!=0:
                 root=tk.Tk(); root.withdraw(); messagebox.showwarning('JARVIS',f'La aplicación terminó con código {rc}. Podés abrir el gestor con ACTUALIZACIONES.bat para restaurar.',parent=root); root.destroy()
             return rc
+    except InstanceBusy:
+        sent=request_focus(m.store)
+        if sent and not manage: return 0
+        root=tk.Tk(); root.withdraw()
+        messagebox.showinfo('JARVIS','JARVIS ya está abierto. '+('Se solicitó mostrar la ventana existente; si no aparece, usá Alt+Tab. ' if sent else '')+'Cerrá la sesión antes de gestionar actualizaciones.',parent=root)
+        root.destroy(); return 0
     except Exception as e:
         root=tk.Tk(); root.withdraw(); messagebox.showerror('JARVIS',str(e),parent=root); root.destroy(); return 1
 if __name__=='__main__': raise SystemExit(main())

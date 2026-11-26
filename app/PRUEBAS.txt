@@ -1,4 +1,1 @@
-V0.4.1: 25 pruebas unitarias (test_jarvis, test_v04, test_wake041) OK.
-Prueba UI cámaras y prueba UI voz con simulaciones OK (Xvfb/Linux).
-No se ha probado con micrófono, Vosk real, Ollama real ni hardware Windows.
-La frase alternativa «Hola, asistente» está habilitada por defecto en modo wake.
+V0.5.0: ejecutar suites de raíz test_release test_security y de app test_jarvis test_v04 test_wake041 test_core test_memory test_launcher test_diagnostics test_speech_turn; UI simulada test_ui y test_voice_ui en Windows/Linux. Consultar GitHub Actions para resultado real. Hardware físico pendiente. El diagnóstico y la memoria no requieren acceso remoto.

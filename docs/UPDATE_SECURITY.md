@@ -29,3 +29,6 @@ Se exige gh >= 2.102.0 por GHSA-wjmr-j3rp-mh2g y GHSA-4mq3-hpgx-9cx8. El workflo
 ## Confirmación de bootstrap y versión de prueba — 26/11/2026
 
 El usuario informó «Gestor actualizado. Respaldo conservado.» después de verificar y ejecutar el bootstrap. Se prepara V0.4.4 con el núcleo modular validado para comprobar la actualización autenticada real. No equivale a haber instalado V0.4.4 ni a validar sus cámaras/micrófono. El gestor inicial no se autoactualiza. Antes de avanzar en publicación funcional amplia, probar descarga, arranque, restauración y retorno a V0.4.4 desde el botón Restaurar.
+
+## Entrega acumulativa V0.5.0
+El usuario confirmó detección automática de la actualización mediante JARVIS.bat. No hay confirmación explícita de la instalación de V0.4.4. V0.5.0 se publica solo si CI y atestaciones pasan. El gestor nuevo se distribuye como asset autenticado separado y no se sustituye por la actualización de aplicación. Los datos de memoria local se añaden a la regresión de actualización y restauración.

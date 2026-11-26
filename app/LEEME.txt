@@ -1,3 +1,24 @@
+JARVIS Vision V0.5.0 — instalación administrada
+================================================
+Abrí JARVIS.bat o el acceso directo de escritorio al gestor. Aceptá la nueva
+versión si aparece. No descomprimas el ZIP sobre la instalación anterior.
+El gestor conserva configuraciones, modelos, fotos y datos compartidos.
+Verificá que la cabecera muestre V0.5.0.
+
+Memoria y personalidad: abrí el botón superior. Agregá notas voluntariamente;
+activá el uso de recuerdos si lo deseás. Buscá, editá o eliminá notas.
+Los recuerdos no son transcripciones automáticas y la base no está cifrada.
+No guardes contraseñas ni secretos.
+
+Herramientas > Diagnóstico de JARVIS: comprueba componentes sin activar hardware.
+Herramientas > Crear acceso directo de JARVIS: en Windows administrado, solicita
+confirmación y crea un acceso directo al gestor con pythonw.exe, sin CMD
+permanente. Las consolas auxiliares requieren el gestor actualizado por separado.
+
+Voz: ver VOZ.txt. Las opciones de pausa y nombre aislado son voluntarias.
+Conserva el funcionamiento anterior de cámaras, YOLO y Ollama descrito abajo.
+
+--- Referencia histórica de versiones anteriores ---
 JARVIS Vision V0.4 — Windows
 ============================
 Actualización independiente. Conservá la carpeta V0.3 como respaldo.

@@ -26,14 +26,14 @@ class ReleaseTests(unittest.TestCase):
             root=Path(d); pkg,feed=build('CabreraFelipe/jarvis-vision',root/'dist'); m=Manager(root/'user')
             prior=root/'prior.zip'
             with zipfile.ZipFile(pkg) as z, zipfile.ZipFile(prior,'w') as old:
-                manifest=json.loads(z.read('release.json')); current=feed['version']; parts=list(map(int,current.split('.'))); self.assertGreater(parts[2],0); prior_version='.'.join(map(str,[parts[0],parts[1],parts[2]-1])); manifest['version']=prior_version
+                manifest=json.loads(z.read('release.json')); current=feed['version']; parts=list(map(int,current.split('.'))); prior_version='0.4.4' if current=='0.5.0' else ('.'.join(map(str,[parts[0],parts[1],parts[2]-1])) if parts[2] else '.'.join(map(str,[parts[0],parts[1]-1,0]))); manifest['version']=prior_version
                 for name in manifest['files']:
                     data=z.read('app/'+name)
                     if name=='jarvis_vision.py':data=data.replace(f"VERSION='{current}'".encode(),f"VERSION='{prior_version}'".encode())
                     manifest['files'][name]=hashlib.sha256(data).hexdigest();old.writestr('app/'+name,data)
                 old.writestr('release.json',json.dumps(manifest))
             m.install(prior)
-            markers={'camera_config.json':b'preferences','modelos/model.bin':b'voice','capturas/photo.jpg':b'photo','yolo11n.pt':b'weights'}
+            markers={'camera_config.json':b'preferences','modelos/model.bin':b'voice','capturas/photo.jpg':b'photo','yolo11n.pt':b'weights','jarvis_memory.sqlite3':b'local memory bytes'}
             for name,data in markers.items():
                 p=m.root/name;p.parent.mkdir(parents=True,exist_ok=True);p.write_bytes(data)
             with patch('manager.fetch',return_value=pkg.read_bytes()):self.assertEqual(m.download(feed),current)

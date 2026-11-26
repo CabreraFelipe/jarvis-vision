@@ -54,6 +54,8 @@ jobs:
     if: github.ref == 'refs/heads/main'
     permissions:
       contents: write
+      id-token: write
+      attestations: write
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -62,6 +64,18 @@ jobs:
           python-version: '3.12'
       - name: Construir archivos
         run: python build_release.py "$GITHUB_REPOSITORY" dist
+      - name: Atestar procedencia del ZIP y manifiesto
+        uses: actions/attest@v4
+        with:
+          subject-path: 'dist/*'
+      - name: Verificar atestaciones antes de publicar
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          for artifact in dist/*; do
+            gh attestation verify "$artifact" --repo "$GITHUB_REPOSITORY" --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release.yml" --deny-self-hosted-runners
+          done
       - name: Crear release validada
         env:
           GH_TOKEN: ${{ github.token }}

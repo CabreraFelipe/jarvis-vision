@@ -1,3 +1,5 @@
+V0.5.3: pruebas de PR12 y PR13 superadas en Windows y Linux (45878477824, 45878869912). Pendiente CI final y validación física. Probar arranque rápido, ambas cámaras, selección de micrófono y transcripción, cierre repetido, revisión 2 del gestor y conservación de memoria/configuración. No se ha medido el modelo Vosk completo en el PC del usuario.
+
 V0.5.2: CI integrada del gestor y foco Windows/Linux superada (45877438162, 45877381189). Pendiente CI de publicación y validación física de la nueva revisión. Ejecutar test_instance_focus además de la suite anterior. Comprobar inicio, dos cámaras, voz, memoria, foco de instancia y gestor. No se ha validado una actualización real de revisión 1 a 2.
 
 V0.5.1: añadir test_camera_performance a la suite de V0.5.0. CI de PR7 superada en Windows y Linux (45875557736). Pendiente CI de publicación y prueba física de Redragon, cámaras simultáneas, selección manual, YOLO y voz.

@@ -4,7 +4,7 @@ from typing import Any, Protocol
 from conversation import Conversation
 
 class ChatProvider(Protocol):
-    def __call__(self, frame: Any, question: str, history: list[dict]) -> str: ...
+    def __call__(self, frame: Any, question: str, history: list[dict], *, style: str = 'Normal', memories: tuple[str, ...] = ()) -> str: ...
 
 @dataclass(frozen=True)
 class Request:
@@ -30,7 +30,7 @@ class AssistantCore:
         messages = self.conversation.snapshot() if use_context else []
         return Request(question, source, self.conversation.epoch, bool(use_context),
                        frame.copy() if frame is not None else None,
-                       tuple((m['role'], m['content']) for m in messages), style, tuple(memories))
+                       tuple((m['role'], m['content']) for m in messages), style, tuple(memories) if use_context else ())
 
     def answer(self, request):
         """Call from worker. Only explicit request data reaches the provider."""

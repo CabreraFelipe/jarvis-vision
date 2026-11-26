@@ -18,15 +18,22 @@ def open_memory(parent,store,on_change):
     ttk.Label(panel,text='Estilo de respuesta').pack(anchor='w',pady=(8,0))
     combo=ttk.Combobox(panel,values=STYLES,textvariable=tone,state='readonly'); combo.pack(fill='x')
     combo.bind('<<ComboboxSelected>>',lambda _:guard(settings))
+    query=tk.StringVar(); ttk.Label(panel,text='Buscar recuerdos').pack(anchor='w',pady=(8,0)); ttk.Entry(panel,textvariable=query).pack(fill='x')
     box=tk.Listbox(panel,exportselection=False); box.pack(fill='both',expand=True,pady=10)
     entries=[]
     def refresh():
-        entries[:]=store.items(); box.delete(0,'end')
+        entries[:]=store.search(query.get()); box.delete(0,'end')
         for _,text in entries: box.insert('end',text)
     def add():
         text=simpledialog.askstring('Nuevo recuerdo','¿Qué querés que JARVIS recuerde? (máx. 300 caracteres)',parent=win)
         if text is not None:
             store.add(text); on_change(); refresh()
+    def edit():
+        selection=box.curselection()
+        if selection:
+            note_id,prior=entries[selection[0]]
+            text=simpledialog.askstring('Editar recuerdo','Nuevo texto (máx. 300 caracteres)',initialvalue=prior,parent=win)
+            if text is not None: store.edit(note_id,text); on_change(); refresh()
     def delete():
         selection=box.curselection()
         if selection:
@@ -35,8 +42,9 @@ def open_memory(parent,store,on_change):
         if messagebox.askyesno('Borrar recuerdos','¿Eliminar todas las notas guardadas? No se borran otros archivos.',parent=win):
             store.clear(); on_change(); refresh()
     row=ttk.Frame(panel); row.pack(fill='x')
-    for label,fn in [('Agregar',add),('Eliminar seleccionado',delete),('Borrar todos',clear)]:
+    for label,fn in [('Agregar',add),('Editar',edit),('Eliminar',delete),('Borrar todos',clear)]:
         ttk.Button(row,text=label,command=lambda f=fn:guard(f)).pack(side='left',padx=3)
     ttk.Button(row,text='Cerrar',command=win.destroy).pack(side='right')
+    query.trace_add('write',lambda *_:guard(refresh))
     guard(refresh)
     return win

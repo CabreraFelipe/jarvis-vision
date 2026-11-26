@@ -17,6 +17,7 @@ from assistant_core import AssistantCore
 from memory import Memory
 from memory_ui import open_memory
 from windows_launcher import create_shortcut
+from diagnostics_ui import open_diagnostics
 
 VERSION='0.4.4'
 UPDATE_EXIT=42
@@ -92,7 +93,7 @@ class Slot:
 class App:
     def __init__(self,root,index=None):
         self.root=root; self.closed=False; self.results=queue.Queue(); self.ask_busy=False; self.detect_busy=False; self.detector=None; self.detection_on=False; self.detect_epoch=0; self.last_detection=0; self.listen_busy=False; self.speak_busy=False; self.stop_voice=threading.Event(); self.core=AssistantCore(ask_vision); self.conversation=self.core.conversation; self.wake_enabled=False; self.voice_epoch=0; self.pending_speech=None
-        self.memory=Memory(CONFIG.parent/'jarvis_memory.sqlite3'); self.memory_window=None
+        self.memory=Memory(CONFIG.parent/'jarvis_memory.sqlite3'); self.memory_window=None; self.diagnostics_window=None
         a,b,self.profiles=load_config(CONFIG)
         if index is not None: a=dict(self.profiles.get(str(index),a)); a['index']=index
         if b['index']==a['index']: b=dict(b,index=1 if a['index']!=1 else 0)
@@ -101,10 +102,11 @@ class App:
         top=ttk.Frame(root,padding=12); top.pack(fill='x'); ttk.Label(top,text='JARVIS Vision  /  V'+VERSION,font=('Segoe UI',18,'bold')).pack(side='left'); ttk.Label(top,text='Procesamiento local · Micrófono opcional').pack(side='right'); self.update_requested=False
         if os.environ.get('JARVIS_MANAGED')=='1': ttk.Button(top,text='Actualizaciones',command=self.open_updates).pack(side='right',padx=10)
         ttk.Button(top,text='Memoria y personalidad',command=self.show_memory).pack(side='right',padx=6)
+        menu=tk.Menu(root); tools=tk.Menu(menu,tearoff=False)
+        tools.add_command(label='Diagnóstico de JARVIS',command=self.show_diagnostics)
         if os.name=='nt' and os.environ.get('JARVIS_MANAGED')=='1':
-            menu=tk.Menu(root); tools=tk.Menu(menu,tearoff=False)
             tools.add_command(label='Crear acceso directo de JARVIS',command=self.make_shortcut)
-            menu.add_cascade(label='Herramientas',menu=tools); root.configure(menu=menu)
+        menu.add_cascade(label='Herramientas',menu=tools); root.configure(menu=menu)
         main=ttk.Frame(root,padding=(12,0,12,12)); main.pack(fill='both',expand=True)
         main.columnconfigure(0,weight=1,uniform='camera'); main.columnconfigure(1,weight=1,uniform='camera'); main.columnconfigure(2,weight=1); main.rowconfigure(0,weight=1)
         self.slots=[Slot(self,main,0,a),Slot(self,main,1,b)]
@@ -125,6 +127,14 @@ class App:
         ttk.Label(side,text='Ollama local · imágenes solo a pedido. Voz continua solo si la activás.',wraplength=290).pack(fill='x')
         self.answer=tk.Text(side,wrap='word',height=8,width=30,font=('Segoe UI',10)); self.answer.pack(fill='both',expand=True); self.write('Conectá una cámara. Para preguntas instalá Ollama y gemma3:4b. Para voz, ver VOZ.txt.')
         self.slots[0].connect(); self.root.after(40,self.tick)
+    def show_diagnostics(self):
+        if self.diagnostics_window is not None and self.diagnostics_window.winfo_exists():
+            self.diagnostics_window.lift(); return
+        def status():
+            return [(f'Cámara {s.num+1}',s.status.get().split('\n')[0]) for s in self.slots]+[
+                ('Micrófono','En uso' if self.listen_busy else 'Inactivo'),
+                ('Activación por voz','Habilitada' if self.wake_enabled else 'Desactivada')]
+        self.diagnostics_window=open_diagnostics(self.root,BASE,VERSION,status)
     def make_shortcut(self):
         if not messagebox.askyesno('Acceso directo','¿Crear o reemplazar el acceso directo JARVIS en el escritorio? Mantendrá el gestor de actualizaciones.',parent=self.root): return
         try:
@@ -172,7 +182,7 @@ class App:
         if self.listen_busy:
             self.stop_voice.set(); self.voice_epoch+=1
         self.ask_busy=True; self.abutton.configure(state='disabled'); source=f'Cámara {s.num+1}' if visual else 'Sin cámara'; self.write(f'{source}: procesando…'); gen=s.generation
-        try: style,memories=self.memory.snapshot()
+        try: style,memories=self.memory.snapshot(question)
         except Exception as e:
             self.ask_busy=False; self.abutton.configure(state='normal'); self.write('No se pudo leer la memoria: '+str(e)); return
         request=self.core.prepare(question,source,frame,self.context_on.get(),style,memories if self.context_on.get() else ())

@@ -78,9 +78,21 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -eu
+          python -c "import re, subprocess; m=re.match(r'gh version (\d+)\.(\d+)\.(\d+)(?:\s|$)',subprocess.check_output(['gh','--version'],text=True)); assert m and tuple(map(int,m.groups())) >= (2,102,0), 'GitHub CLI >=2.102.0 required'"
           for artifact in dist/*; do
-            gh attestation verify "$artifact" --repo "$GITHUB_REPOSITORY" --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release.yml" --source-ref refs/heads/main --deny-self-hosted-runners
+            gh attestation verify "$artifact" --repo "$GITHUB_REPOSITORY" --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release.yml@refs/heads/main" --source-ref refs/heads/main --deny-self-hosted-runners
           done
+      - name: Publicar bootstrap independiente (solo transición 0.4.3)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          if [ "$(cat VERSION)" = "0.4.3" ]; then
+            tags=$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq '.[].tag_name')
+            if ! printf '%s\n' "$tags" | grep -Fxq "updater-v2-bootstrap"; then
+              gh release create updater-v2-bootstrap dist/manager.py --target "$GITHUB_SHA" --prerelease --latest=false --title "JARVIS Secure Update Manager (bootstrap)" --notes "Migración inicial explícita. Verificar manager.py con GitHub CLI >= 2.102.0 antes de ejecutarlo. No modifica la release estable."
+            fi
+          fi
       - name: Crear release validada
         env:
           GH_TOKEN: ${{ github.token }}

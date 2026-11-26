@@ -8,7 +8,8 @@ from urllib.parse import urlparse
 PROTOCOL=1
 TRUSTED_REPO='CabreraFelipe/jarvis-vision'
 TRUSTED_FEED=f'https://github.com/{TRUSTED_REPO}/releases/latest/download/feed.json'
-TRUSTED_WORKFLOW=f'{TRUSTED_REPO}/.github/workflows/release.yml'
+TRUSTED_WORKFLOW=f'{TRUSTED_REPO}/.github/workflows/release.yml@refs/heads/main'
+MIN_GH_VERSION=(2,102,0)
 MAX_ZIP=50*1024*1024
 MAX_FILE=20*1024*1024
 MAX_MANIFEST=128*1024
@@ -44,7 +45,15 @@ def verify_artifact(path):
     if not gh: raise ValueError('Verificación no disponible: instalá GitHub CLI oficial y autenticá tu cuenta si es necesario.')
     env=os.environ.copy()
     env.update(GH_HOST='github.com', GH_PROMPT_DISABLED='1', GH_NO_UPDATE_NOTIFIER='1')
-    cmd=[str(Path(gh).resolve()),'attestation','verify',str(Path(path).resolve()),
+    binary=str(Path(gh).resolve())
+    try:
+        info=subprocess.run([binary,'--version'],env=env,capture_output=True,timeout=10,check=False)
+    except (OSError,subprocess.TimeoutExpired) as e:
+        raise ValueError('No se pudo verificar la versión de GitHub CLI.') from e
+    match=re.match(rb'gh version (\d+)\.(\d+)\.(\d+)(?:\s|$)',info.stdout)
+    if info.returncode!=0 or not match or tuple(map(int,match.groups()))<MIN_GH_VERSION:
+        raise ValueError('GitHub CLI 2.102.0 o superior es obligatorio.')
+    cmd=[binary,'attestation','verify',str(Path(path).resolve()),
          '--repo',TRUSTED_REPO,'--signer-workflow',TRUSTED_WORKFLOW,
          '--source-ref','refs/heads/main','--deny-self-hosted-runners','--hostname','github.com']
     try:
@@ -202,6 +211,35 @@ def fetch(url,limit):
         if len(data)>limit: raise ValueError('Descarga demasiado grande')
         return data
 
+def migrate_manager(root,source):
+    """Explicit bootstrap after external provenance verification; preserve existing state."""
+    root=Path(root).resolve(); store=root/'.jarvis'; target=store/'manager.py'
+    if not store.is_dir() or store.is_symlink() or not target.is_file() or target.is_symlink() or not (store/'state.json').is_file():
+        raise ValueError('Seleccioná una instalación administrada existente de JARVIS.')
+    with instance_lock(store):
+        manager=Manager(root); active=manager.state()['active']; manager.verified(active)
+        with tempfile.TemporaryDirectory() as d:
+            p=Path(d)/'manager.py'
+            with Path(source).open('rb') as f: data=f.read(MAX_FILE+1)
+            if len(data)>MAX_FILE: raise ValueError('Gestor demasiado grande')
+            p.write_bytes(data); verify_artifact(p); compile(data,str(p),'exec')
+            old=target.read_bytes()
+            if old==data: return False
+            backup=store/('manager-backup-'+digest(old)+'.py')
+            if backup.exists():
+                if backup.is_symlink() or backup.read_bytes()!=old: raise ValueError('Respaldo inconsistente')
+            else:
+                with backup.open('xb') as f:
+                    f.write(old); f.flush(); os.fsync(f.fileno())
+            fd,tmp=tempfile.mkstemp(prefix='.manager-',dir=store)
+            try:
+                with os.fdopen(fd,'wb') as f:
+                    f.write(data); f.flush(); os.fsync(f.fileno())
+                os.replace(tmp,target)
+            finally:
+                if os.path.exists(tmp): os.unlink(tmp)
+            return True
+
 def ui(m, startup=False):
     import tkinter as tk
     from tkinter import ttk,messagebox,filedialog,simpledialog
@@ -250,6 +288,13 @@ def ui(m, startup=False):
     root.mainloop(); return result['launch']
 
 def main():
+    if len(sys.argv)==3 and sys.argv[1]=='--migrate':
+        try:
+            changed=migrate_manager(sys.argv[2],__file__)
+            print('Gestor actualizado. Respaldo conservado.' if changed else 'El gestor ya está actualizado.')
+            return 0
+        except Exception as e:
+            print('Migración no completada:',e,file=sys.stderr); return 1
     import tkinter as tk
     from tkinter import messagebox
     m=Manager(Path(__file__).resolve().parent.parent)

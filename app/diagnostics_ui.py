@@ -38,8 +38,7 @@ def open_diagnostics(parent,base,version,device_status,start_worker=None):
         for label,command in commands:
             row=ttk.Frame(frame);row.pack(fill='x',pady=3)
             ttk.Label(row,text=label,width=24).pack(side='left')
-            var=tk.StringVar(value=command)
-            entry=ttk.Entry(row,textvariable=var,state='readonly');entry.pack(side='left',fill='x',expand=True)
+            entry=ttk.Entry(row);entry.insert(0,command);entry.configure(state='readonly');entry.pack(side='left',fill='x',expand=True)
             def copy(value=command):
                 helpwin.clipboard_clear();helpwin.clipboard_append(value)
                 status.set('Comando copiado; no ejecutado.')

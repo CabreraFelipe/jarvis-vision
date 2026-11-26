@@ -5,3 +5,6 @@ V0.5.3 candidata: PR12 y PR13 validadas en ambos OS e integradas. Confirmaciones
 
 
 Nueva observación: en otro intento V0.5.2 la action camera no mostró imagen. Incidencia intermitente. Mantener abierta hasta validar arranques repetidos y funcionamiento simultáneo, incluso tras cierre y reapertura. No sustituir V0.5.3 publicada con bytes distintos.
+
+
+V0.5.4 acumulativa: PR14 CI superada en Windows y Linux, integrada. V0.5.2 sigue siendo última versión instalada confirmada. No se exige instalar V0.5.3 primero. Validación física de recuperación USB, micrófono y cierre sigue pendiente.

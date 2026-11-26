@@ -48,11 +48,27 @@ class SemanticTests(unittest.TestCase):
             engine.assert_not_called()
     def test_cancel_during_retrieval_discards_notes(self):
         event=Event()
-        def stop(*args):
+        def stop(*args,**kwargs):
             event.set()
             return [(1,'nota')]
         with patch('semantic_memory.retrieve',side_effect=stop):
             self.assertEqual(resolve_notes((),[(1,'nota')],'pregunta',event),((),'Cancelada'))
+    def test_cancel_before_embedding_does_not_send_notes(self):
+        event=Event();opener=Mock()
+        def tags(*args,**kwargs):
+            event.set()
+            return io.BytesIO(json.dumps({'models':[{'name':MODEL}]}).encode())
+        opener.open.side_effect=tags
+        with patch('semantic_memory.urllib.request.build_opener',return_value=opener):
+            self.assertEqual(retrieve([(1,'nota privada')],'pregunta',cancelled=event),[])
+        opener.open.assert_called_once()
+    def test_context_budget_with_many_matches(self):
+        from memory import MAX_CONTEXT
+        matches=[(i,str(i)+'x'*290) for i in range(30)]
+        with patch('semantic_memory.retrieve',return_value=matches):
+            notes,_=resolve_notes(('coincidencia literal',),matches,'pregunta',Event())
+        self.assertEqual(notes[0],'coincidencia literal')
+        self.assertLessEqual(sum(map(len,notes)),MAX_CONTEXT)
     def test_redirect_refused(self):
         with self.assertRaises(ValueError):NoRedirect().redirect_request()
 

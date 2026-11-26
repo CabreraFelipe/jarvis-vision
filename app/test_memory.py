@@ -69,7 +69,8 @@ class MemoryTests(unittest.TestCase):
         self.assertEqual(len(self.m.items()),1)
     def test_legacy_database_migration(self):
         import sqlite3
-        with sqlite3.connect(self.path) as con:
+        from contextlib import closing
+        with closing(sqlite3.connect(self.path)) as con, con:
             con.execute('CREATE TABLE settings (id INTEGER PRIMARY KEY, enabled INTEGER, style TEXT)')
             con.execute("INSERT INTO settings VALUES (1,1,'Conciso')")
             con.execute('CREATE TABLE notes (id INTEGER PRIMARY KEY, text TEXT UNIQUE)')

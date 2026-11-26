@@ -1,4 +1,4 @@
-"""Experimental local semantic ranking. No disk writes, model pulls or UI integration."""
+"""Experimental local semantic ranking. No disk writes or model pulls."""
 import json
 import math
 import urllib.request
@@ -47,7 +47,7 @@ def rank_vectors(rows,vectors,min_score=MIN_SCORE):
         if score>=min_score: ranked.append((score,note_id,note))
     return [(i,note) for _,i,note in sorted(ranked,reverse=True)]
 
-def retrieve(rows,question):
+def retrieve(rows,question,*,cancelled=None):
     """Call only after explicit consent, in worker. Raises on error; caller owns fallback."""
     if not isinstance(question,str) or len(question)>MAX_QUESTION:
         raise ValueError('Consulta fuera de límites')
@@ -56,9 +56,11 @@ def retrieve(rows,question):
     if len(rows)>MAX_NOTES or any(type(i) is not int or not isinstance(t,str) or not 1<=len(t)<=MAX_NOTE for i,t in rows):
         raise ValueError('Notas fuera de límites')
     opener=urllib.request.build_opener(urllib.request.ProxyHandler({}),NoRedirect())
+    if cancelled is not None and cancelled.is_set():return []
     tags=local_json(opener,'/api/tags')
     if not any(isinstance(x,dict) and MODEL in (x.get('name'),x.get('model')) for x in tags['models']):
         raise ValueError('Modelo semántico local no instalado')
+    if cancelled is not None and cancelled.is_set():return []
     result=local_json(opener,'/api/embed',{'model':MODEL,'input':[question]+[t for _,t in rows],'truncate':False})
     return rank_vectors(rows,result['embeddings'])
 
@@ -70,7 +72,7 @@ def resolve_notes(lexical,candidates,question,cancelled):
     if cancelled.is_set(): return (), 'Cancelada'
     if not candidates: return lexical, ''
     try:
-        semantic=retrieve(candidates,question)
+        semantic=retrieve(candidates,question,cancelled=cancelled)
         if cancelled.is_set(): return (), 'Cancelada'
         notes=[];total=0
         for text in lexical+tuple(t for _,t in semantic):

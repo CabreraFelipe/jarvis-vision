@@ -177,11 +177,6 @@ def open_camera(config,stop=None):
     profile=config['resolution']
     if profile=='Compatibilidad':
         return open_compatible_camera(config,stop)
-    if config.get('compatibility_first') and profile not in ('Auto fluidez','Auto calidad'):
-        try: return open_compatible_camera(config,stop)
-        except RuntimeError:
-            if stop is not None and stop.is_set(): raise
-            return open_performance_camera(config,stop)
     try: return open_performance_camera(config,stop)
     except RuntimeError:
         if stop is not None and stop.is_set(): raise

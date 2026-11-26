@@ -68,19 +68,19 @@ class CompatibilityTests(unittest.TestCase):
         self.assertEqual(frame.shape[:2],(480,640));self.assertFalse(cap.changed)
         self.assertEqual(len(NativeOnlyCap.instances),1);cap.release()
     @patch('camera.cv2.VideoCapture',BackendCap)
-    def test_secondary_uses_legacy_without_probe(self):
-        config=dict(camera.normalize({'index':1,'resolution':'640x480'}),compatibility_first=True)
-        with patch('camera.measure_capture',side_effect=AssertionError('must not probe')):
+    def test_secondary_retains_performance_path(self):
+        config=camera.normalize({'index':1,'resolution':'640x480'})
+        with patch('camera.measure_capture',side_effect=lambda cap,frame,stop:(frame,30)) as probe, patch('camera.open_compatible_camera',side_effect=AssertionError('must not change working path')):
             cap,frame=camera.open_camera(config)
-        self.assertEqual(cap.index,1);self.assertEqual(frame.shape[:2],(480,640));cap.release()
+        probe.assert_called();self.assertEqual(cap.index,1);self.assertEqual(frame.shape[:2],(480,640));cap.release()
     @patch('camera.cv2.VideoCapture',BackendCap)
     def test_performance_failure_falls_back_to_legacy(self):
         with patch('camera.measure_capture',side_effect=lambda cap,frame,stop:(frame,0)):
             cap,frame=camera.open_camera(camera.normalize({'resolution':'640x480','backend':'DirectShow'}))
         self.assertEqual(cap.backend,cv2.CAP_DSHOW);self.assertEqual(frame.shape[:2],(480,640));cap.release()
     @patch('camera.cv2.VideoCapture',BackendCap)
-    def test_secondary_can_opt_into_speed(self):
-        config=dict(camera.normalize({'index':1,'resolution':'Auto fluidez'}),compatibility_first=True)
+    def test_secondary_speed_profile(self):
+        config=camera.normalize({'index':1,'resolution':'Auto fluidez'})
         with patch('camera.measure_capture',return_value=(np.zeros((720,1280,3),np.uint8),30)) as probe:
             cap,frame=camera.open_camera(config)
         probe.assert_called();self.assertEqual(frame.shape[:2],(720,1280));cap.release()

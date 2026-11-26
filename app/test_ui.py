@@ -24,7 +24,7 @@ with tempfile.TemporaryDirectory() as d, patch('camera.cv2.VideoCapture',FakeCap
         b.index.set('0'); b.connect(); assert warn.called and b.capture is None
         b.index.set('1'); b.res.set('640x480'); b.connect(); wait(root,lambda:b.frame() is not None and b.saved)
         assert int(a.frame()[0,0,0])==0 and int(b.frame()[0,0,0])==1
-        assert not a.capture.config['compatibility_first'] and b.capture.config['compatibility_first']
+        assert a.capture.config==a.config and b.capture.config==b.config
         b.res.set('Compatibilidad'); b.connect(); wait(root,lambda:b.saved and b.frame() is not None)
         assert b.config['resolution']=='Compatibilidad' and a.frame() is not None
         app.source.set('Cámara 2'); app.source_changed(); app.ask(); wait(root,lambda:not app.ask_busy); assert 'Cámara 2' in app.answer.get('1.0','end')

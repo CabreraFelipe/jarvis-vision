@@ -87,7 +87,10 @@ class Slot:
             if not self.capture and self.pending is None and self.status.get().startswith('Cerrando'): self.status.set('Desactivada')
             return
         frame,stamp,fps,status,fmt,ready=self.capture.snapshot()
-        if not ready or frame is None: self.status.set(status); return
+        if not ready or frame is None:
+            if self.photo is not None:
+                self.generation+=1;self.boxes=[];self.box_time=0.;self.clear('Esperando imagen…')
+            self.status.set(status);return
         if not self.saved:
             self.saved=True; self.fallback=None; self.app.profiles[str(self.config['index'])]=dict(self.config); self.app.persist()
         now=time.monotonic(); h,w=frame.shape[:2]

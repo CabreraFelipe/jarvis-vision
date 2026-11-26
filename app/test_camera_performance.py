@@ -1,4 +1,4 @@
-import unittest,threading
+import unittest,threading,time
 from unittest.mock import patch
 import numpy as np
 import cv2
@@ -93,4 +93,64 @@ class CompatibilityTests(unittest.TestCase):
         with patch('camera.open_compatible_camera') as legacy:
             with self.assertRaises(RuntimeError):camera.open_camera(camera.normalize({}),stop)
             legacy.assert_not_called()
+class SlowNativeCap(NativeOnlyCap):
+    instances=[]
+    def __init__(self,index,backend):
+        super().__init__(index,backend);self.reads=0
+    def read(self):
+        self.reads+=1
+        if self.reads<=4:return False,None
+        return super().read()
+
+class RecoveryTests(unittest.TestCase):
+    @patch('camera.cv2.VideoCapture',SlowNativeCap)
+    def test_slow_native_keeps_same_handle(self):
+        SlowNativeCap.instances=[]
+        cap,frame=camera.open_camera(camera.normalize({'index':1,'resolution':'Compatibilidad','backend':'DirectShow'}))
+        self.assertEqual(len(SlowNativeCap.instances),1);self.assertEqual(cap.reads,5);self.assertFalse(cap.changed)
+        self.assertEqual(frame.shape[:2],(480,640));cap.release()
+    def test_cancel_before_wait(self):
+        stop=threading.Event();stop.set()
+        with patch.object(FakeCap,'read',side_effect=AssertionError('must not read')):
+            self.assertIsNone(camera.wait_first_frame(FakeCap(1,cv2.CAP_DSHOW),stop))
+    def test_initial_failure_retries_same_config(self):
+        cfg=camera.normalize({'index':1,'resolution':'Inicio rápido','backend':'DirectShow'})
+        cap=FakeCap(1,cv2.CAP_DSHOW);_,frame=cap.read()
+        with patch('camera.open_camera',side_effect=[RuntimeError('USB starting'),(cap,frame)]) as open_:
+            s=camera.Capture(cfg)
+            try:
+                end=time.monotonic()+3
+                while time.monotonic()<end and not s.snapshot()[5]:time.sleep(.02)
+                self.assertTrue(s.snapshot()[5]);self.assertEqual(open_.call_count,2)
+                self.assertTrue(all(call.args[0]==cfg for call in open_.call_args_list))
+            finally:s.stop.set();s.thread.join(2)
+        self.assertTrue(cap.released)
+    def test_interruption_releases_before_reopen(self):
+        cfg=camera.normalize({'index':1,'resolution':'Compatibilidad'})
+        cap=FakeCap(1,cv2.CAP_DSHOW);next_cap=FakeCap(1,cv2.CAP_DSHOW);_,frame=cap.read()
+        cap.read=lambda:(False,None)
+        calls=[]
+        def open_(config,stop):
+            calls.append(config)
+            if len(calls)==1:return cap,frame
+            self.assertTrue(cap.released);return next_cap,frame
+        with patch('camera.open_camera',side_effect=open_):
+            s=camera.Capture(cfg)
+            try:
+                end=time.monotonic()+3
+                while time.monotonic()<end and (len(calls)<2 or not s.snapshot()[5]):time.sleep(.02)
+                self.assertEqual(len(calls),2);self.assertTrue(s.snapshot()[5])
+            finally:s.stop.set();s.thread.join(2)
+        self.assertTrue(next_cap.released)
+    def test_retry_limit_and_normal_path(self):
+        for mode,expected in [('Inicio rápido',3),('640x480',1)]:
+            with patch('camera.open_camera',side_effect=RuntimeError('not available')) as open_:
+                s=camera.Capture(camera.normalize({'resolution':mode}));s.thread.join(4)
+                self.assertFalse(s.thread.is_alive());self.assertEqual(open_.call_count,expected)
+                self.assertFalse(s.snapshot()[5])
+    def test_cancel_prevents_retry(self):
+        def fail(config,stop):stop.set();raise RuntimeError('cancelled')
+        with patch('camera.open_camera',side_effect=fail) as open_:
+            s=camera.Capture(camera.normalize({'resolution':'Compatibilidad'}));s.thread.join(2)
+            self.assertEqual(open_.call_count,1);self.assertEqual(s.snapshot()[3],'Desactivada')
 if __name__=='__main__':unittest.main()

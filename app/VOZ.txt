@@ -45,3 +45,5 @@ CORRECCIÓN V0.4.1
 - No activa con «hola» sola. La exactitud real depende del modelo español.
 
 Modo opcional «Terminar al detectar una pausa»: usa el final de segmento de Vosk, con máximo 12 segundos. El modo de 6 segundos y Hola JARVIS siguen disponibles. No es streaming de respuesta ni interrupción de TTS. Si las pausas naturales cortan demasiado pronto, desactivar esta opción.
+
+Reconocimiento ampliado: variantes fonéticas acotadas, nombre dividido (hola / jar / vis) con ventanas breves y modo opcional «JARVIS» solo. Configurá este modo antes de activar la escucha. El nombre solo abre una ventana de 8 s para la pregunta; no se activa por «hola» sola. No es reconocimiento del hablante ni un detector acústico especializado. Las pruebas con texto no garantizan que Vosk transcriba todas las pronunciaciones.

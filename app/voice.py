@@ -71,33 +71,53 @@ import unicodedata
 def normalize(text):
     return ''.join(c for c in unicodedata.normalize('NFD',text.lower()) if not unicodedata.combining(c))
 
-# Deliberately bounded variants; never wake on "hola" alone.
-NAME=r'(?:jarvis|yarvis|llarvis|charvis|jarbis|yarbis|yervis|jervis|harvis|arvis|jar\s+vis|yar\s+vis|asistente)'
-WAKE=re.compile(r'^\s*hola[\s,.:;!?¿¡]+'+NAME+r'\b',re.I)
-SPLIT=re.compile(r'^\s*'+NAME+r'\b',re.I)
+# Explicit phonetic variants, not unrestricted fuzzy matching.
+# Bare-name activation is optional and accepts only a narrower set.
+NAME=r'(?:jarvis|yarvis|llarvis|charvis|jarbis|yarbis|yervis|jervis|harvis|arvis|llarbis|charbis|y arvis|(?:jar|yar|llar|char|har|jer|yer)[\s-]+(?:vis|bis)|asistente)'
+BOUNDARY=r'(?=$|[\s,.:;!?¿¡])'
+WAKE=re.compile(r'^\s*hola[\s,.:;!?¿¡]+'+NAME+BOUNDARY,re.I)
+SPLIT=re.compile(r'^\s*'+NAME+BOUNDARY,re.I)
+BARE=re.compile(r'^(?:jarvis|yarvis|llarvis|jarbis|yarbis|jar[\s-]+vis|yar[\s-]+vis)$',re.I)
+FIRST=r'(?:jar|yar|llar|char|har|jer|yer)'
+PARTIAL_HELLO=re.compile(r'^hola[\s,.:;!?¿¡]+'+FIRST+r'$',re.I)
+PARTIAL_NAME=re.compile(r'^'+FIRST+r'$',re.I)
+SUFFIX=re.compile(r'^(?:vis|bis)'+BOUNDARY,re.I)
+PUNCT=' ,.!?¿¡:;'
 class WakeCommand:
-    def __init__(self,timeout=8): self.timeout=timeout; self.until=None; self.hola_until=None
+    def __init__(self,timeout=8,*,allow_bare=False):
+        self.timeout=timeout; self.allow_bare=allow_bare
+        self.until=None; self.hola_until=None; self.partial_until=None
     def feed(self,text,now):
-        text=text.strip(); self.expire(now)
+        text=unicodedata.normalize('NFC',text.strip()); self.expire(now)
         normalized=normalize(text)
+        trimmed=normalized.strip(PUNCT)
         match=WAKE.search(normalized)
         if not match and self.hola_until is not None:
             match=SPLIT.search(normalized)
-        self.hola_until=None
+        if not match and self.partial_until is not None:
+            match=SUFFIX.search(normalized)
+        was_hello=self.hola_until is not None
+        self.hola_until=None; self.partial_until=None
         if match:
-            command=text[match.end():].strip(' ,.!?¿¡:;')
+            command=text[match.end():].strip(PUNCT)
             if command: self.until=None; return command
+            self.until=now+self.timeout; return None
+        if self.allow_bare and BARE.fullmatch(trimmed):
             self.until=now+self.timeout; return None
         if self.until is not None and text:
             self.until=None; return text
-        if normalized.strip(' ,.!?¿¡:;')=='hola': self.hola_until=now+2
+        if PARTIAL_HELLO.fullmatch(trimmed) or (was_hello and PARTIAL_NAME.fullmatch(trimmed)):
+            self.partial_until=now+2
+        elif trimmed=='hola':
+            self.hola_until=now+2
         return None
     def expire(self,now):
         if self.hola_until is not None and now>=self.hola_until: self.hola_until=None
+        if self.partial_until is not None and now>=self.partial_until: self.partial_until=None
         if self.until is not None and now>=self.until: self.until=None; return True
         return False
 
-def listen_wake(stop,on_state=None):
+def listen_wake(stop,on_state=None,*,allow_bare=False):
     global _model
     import sounddevice as sd
     from vosk import Model, KaldiRecognizer
@@ -105,15 +125,16 @@ def listen_wake(stop,on_state=None):
     if _model is None: _model=Model(str(MODEL_DIR))
     if stop.is_set(): return ''
     device=sd.query_devices(kind='input'); rate=int(device['default_samplerate'])
-    rec=KaldiRecognizer(_model,rate); chunks=queue.Queue(maxsize=32); gate=WakeCommand()
+    rec=KaldiRecognizer(_model,rate); chunks=queue.Queue(maxsize=32); gate=WakeCommand(allow_bare=allow_bare)
     def callback(indata,frames,timing,status):
         try: chunks.put_nowait(bytes(indata))
         except queue.Full: pass
     with sd.RawInputStream(samplerate=rate,blocksize=max(800,rate//10),dtype='int16',channels=1,callback=callback):
-        if on_state: on_state('En espera de «Hola, JARVIS» o «Hola, asistente» · micrófono activo')
+        prompt='En espera de «Hola, JARVIS» o «Hola, asistente»'+(' o «JARVIS» solo' if allow_bare else '')
+        if on_state: on_state(prompt+' · micrófono activo')
         while not stop.is_set():
             now=time.monotonic()
-            if gate.expire(now) and on_state: on_state('Tiempo agotado · en espera de «Hola, JARVIS» o «Hola, asistente»')
+            if gate.expire(now) and on_state: on_state('Tiempo agotado · '+prompt)
             try: data=chunks.get(timeout=.15)
             except queue.Empty: continue
             if rec.AcceptWaveform(data):

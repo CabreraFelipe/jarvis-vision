@@ -13,7 +13,7 @@ from PIL import Image,ImageTk
 from camera import Capture, MODES, FORMATS, FPS, load_config, save_config
 from vision import ask_vision
 import voice
-from conversation import Conversation
+from assistant_core import AssistantCore
 
 VERSION='0.4.3'
 UPDATE_EXIT=42
@@ -88,7 +88,7 @@ class Slot:
 
 class App:
     def __init__(self,root,index=None):
-        self.root=root; self.closed=False; self.results=queue.Queue(); self.ask_busy=False; self.detect_busy=False; self.detector=None; self.detection_on=False; self.detect_epoch=0; self.last_detection=0; self.listen_busy=False; self.speak_busy=False; self.stop_voice=threading.Event(); self.conversation=Conversation(); self.wake_enabled=False; self.voice_epoch=0; self.pending_speech=None
+        self.root=root; self.closed=False; self.results=queue.Queue(); self.ask_busy=False; self.detect_busy=False; self.detector=None; self.detection_on=False; self.detect_epoch=0; self.last_detection=0; self.listen_busy=False; self.speak_busy=False; self.stop_voice=threading.Event(); self.core=AssistantCore(ask_vision); self.conversation=self.core.conversation; self.wake_enabled=False; self.voice_epoch=0; self.pending_speech=None
         a,b,self.profiles=load_config(CONFIG)
         if index is not None: a=dict(self.profiles.get(str(index),a)); a['index']=index
         if b['index']==a['index']: b=dict(b,index=1 if a['index']!=1 else 0)
@@ -142,7 +142,7 @@ class App:
             self.results.put(('detect',slot,gen,epoch,boxes,None))
         except Exception as e: self.results.put(('detect',slot,gen,epoch,[],str(e)))
     def clear_context(self):
-        self.conversation.clear(); self.pending_speech=None; self.write('Contexto borrado. Nueva conversación.')
+        self.core.clear(); self.pending_speech=None; self.write('Contexto borrado. Nueva conversación.')
     def ask(self):
         if self.ask_busy: return
         s=self.active(); visual=self.mode.get()=='Visual'; frame=s.frame() if visual else None; question=self.question.get().strip()
@@ -151,11 +151,11 @@ class App:
         # Stop recording before inference; defer speech until the stream is closed.
         if self.listen_busy:
             self.stop_voice.set(); self.voice_epoch+=1
-        self.ask_busy=True; self.abutton.configure(state='disabled'); source=f'Cámara {s.num+1}' if visual else 'Sin cámara'; self.write(f'{source}: procesando…'); gen=s.generation; frame=frame.copy() if frame is not None else None
-        epoch=self.conversation.epoch; history=self.conversation.snapshot() if self.context_on.get() else []; use_context=self.context_on.get()
+        self.ask_busy=True; self.abutton.configure(state='disabled'); source=f'Cámara {s.num+1}' if visual else 'Sin cámara'; self.write(f'{source}: procesando…'); gen=s.generation
+        request=self.core.prepare(question,source,frame,self.context_on.get())
         def work():
-            try: self.results.put(('ask',s.num if visual else None,gen,ask_vision(frame,question,history),None,question,source,epoch,use_context))
-            except Exception as e: self.results.put(('ask',s.num if visual else None,gen,'',str(e),question,source,epoch,use_context))
+            try: self.results.put(('ask',s.num if visual else None,gen,self.core.answer(request),None,request))
+            except Exception as e: self.results.put(('ask',s.num if visual else None,gen,'',str(e),request))
         threading.Thread(target=work,daemon=True).start()
     def cancel_voice(self):
         self.wake_enabled=False; self.voice_epoch+=1; self.stop_voice.set(); self.pending_speech=None; self.wbutton.configure(text='Activar «Hola, JARVIS»'); self.vstatus.set('Micrófono desactivado; cerrando escucha si estaba activa.')
@@ -201,12 +201,13 @@ class App:
                     if error: self.toggle(); self.dstatus.set('Error YOLO: '+error)
                     else: s.boxes=boxes; s.box_time=time.monotonic(); self.dstatus.set(', '.join(f'{name} ({conf:.0%})' for _,name,conf in boxes) or 'Sin objetos reconocidos')
             elif kind=='ask':
-                self.ask_busy=False; self.abutton.configure(state='normal'); slot,gen,text,error,question,source,epoch,use_context=r
-                if epoch!=self.conversation.epoch: continue
+                self.ask_busy=False; self.abutton.configure(state='normal'); slot,gen,text,error,request=r
+                if request.epoch!=self.conversation.epoch: continue
+                source=request.source
                 if slot is not None and gen!=self.slots[slot].generation: self.write('Captura descartada: cambió o se apagó la cámara.'); continue
                 self.write(f'{source}:\n'+(text if not error else 'Error: '+error+'\nComprobá Ollama y gemma3:4b.'))
                 if not error:
-                    if use_context and self.context_on.get(): self.conversation.add(question,text,source,epoch)
+                    self.core.accept(request,text,self.context_on.get())
                     if self.auto_speak.get(): self.pending_speech=text
             elif kind=='mic_state':
                 epoch,state=r

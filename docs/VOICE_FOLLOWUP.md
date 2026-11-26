@@ -1,0 +1,2 @@
+# Seguimiento conversacional
+Opt-in por sesión, máximo cinco turnos posteriores a activación, hasta ocho segundos de captura por turno, silencio regresa a espera. Motor manual elegido (incluido Whisper), Vosk sigue para activación inicial. Exclusión de micrófono/reproducción, generación invalida resultados viejos, órdenes exactas de cierre local. No se toca cámara ni gestor. No hay barge-in acústico ni detector especializado todavía. Pruebas unitarias y UI simuladas, precisión real no medida.
